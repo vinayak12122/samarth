@@ -144,7 +144,6 @@ async def run():
                 return false;
             }"""
 
-            # Initial pre-fetch
             b64_future = asyncio.create_task(page.wait_for_function(captcha_js, arg=last_b64))
             
             for attempt in range(1, max_attempts + 1):
@@ -157,14 +156,10 @@ async def run():
                     if not b64_src: continue
                     last_b64 = b64_src
             
-                    # Start fetching NEXT immediately
                     b64_future = asyncio.create_task(page.wait_for_function(captcha_js, arg=last_b64))
             
-                    # Solve
-                    captcha_text = Solver(b64_src)
-                    print(f"[*] Solved: {captcha_text}. Submitting...")
-            
-                    # ✅ Submit with specialized Event Dispatching
+                    captcha_text = Solver(b64_src)            
+
                     await page.evaluate("""(text) => {
                         const field = document.getElementById('captcha');
                         const btn = document.querySelector('button.train_Search.btnDefault');
@@ -176,8 +171,6 @@ async def run():
                         }
                     }""", captcha_text)
             
-                    # ⚡ FIX: Strict Mode Resolved & Fast Detection
-                    # We use .first to avoid the 'resolved to 2 elements' error
                     success_nav = page.locator("app-payment, #pay-type").first
                     error_toast = page.locator(".ui-toast-message-error").first
 
@@ -189,7 +182,7 @@ async def run():
 
                         for task in pending: task.cancel()
                     except:
-                        pass # Handle timeout manually below
+                        pass
 
                     if await success_nav.is_visible():
                         print(f"[+] Success on Attempt {attempt}")
@@ -197,7 +190,6 @@ async def run():
                         break
                     else:
                         print(f"[-] Invalid Captcha or Timeout (Attempt {attempt})")
-                        # If failed, we click refresh just in case IRCTC didn't
                         await page.click('a[aria-label="Click to refresh Captcha"]', timeout=500)
             
                 except Exception as e:
