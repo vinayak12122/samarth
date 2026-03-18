@@ -3,6 +3,7 @@ __pycache__/
 *.pdparams
 *.pdopt
 train_data/
+inference_model_final/
 data/
 en_dict.txt
 script.py
