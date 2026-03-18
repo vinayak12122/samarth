@@ -1,0 +1,10 @@
+output/
+__pycache__/
+*.pdparams
+*.pdopt
+train_data/
+data/
+en_dict.txt
+script.py
+solver.py
+textExtract.py
