@@ -129,15 +129,8 @@ async def run():
         try:
             MAX_ATTEMPTS = 5
         
-            # --------------------------------------------------
-            # STEP 1: WAIT FOR CAPTCHA TO EXIST (CRITICAL FIX)
-            # --------------------------------------------------
             await page.wait_for_selector('.captcha-img', timeout=0)
-            print("[+] Captcha page loaded")
         
-            # --------------------------------------------------
-            # STEP 2: INJECT FAST OBSERVER + INITIAL PUSH
-            # --------------------------------------------------
             await page.evaluate("""
             () => {
                 window.__captchaQueue = [];
@@ -153,31 +146,24 @@ async def run():
                     }
                 };
         
-                // 🔥 VERY IMPORTANT: capture FIRST captcha immediately
                 pushCaptcha();
         
                 const observer = new MutationObserver(pushCaptcha);
                 observer.observe(document.body, { childList: true, subtree: true });
         
-                // fallback fast scan (handles edge cases)
                 setInterval(pushCaptcha, 25);
             }
             """)
         
-            # --------------------------------------------------
-            # STEP 3: MAIN ULTRA-FAST LOOP
-            # --------------------------------------------------
             attempt = 0
             start_time = time.time()
         
             while attempt < MAX_ATTEMPTS:
         
-                # safety timeout (avoid infinite hang)
                 if time.time() - start_time > 15:
                     print("[!] Captcha timeout overall")
                     sys.exit(1)
         
-                # pull captcha instantly
                 b64_src = await page.evaluate("() => window.__captchaQueue.shift() || null")
         
                 if not b64_src:
@@ -186,10 +172,7 @@ async def run():
         
                 attempt += 1
                 print(f"[*] Attempt {attempt}")
-        
-                # --------------------------------------------------
-                # STEP 4: SOLVE (NON-BLOCKING)
-                # --------------------------------------------------
+
                 try:
                     captcha_text = await asyncio.to_thread(Solver, b64_src)
                 except Exception as e:
@@ -200,9 +183,6 @@ async def run():
                     print("[-] Bad prediction, skipping")
                     continue
         
-                # --------------------------------------------------
-                # STEP 5: INJECT + SUBMIT (FASTEST POSSIBLE)
-                # --------------------------------------------------
                 await page.evaluate("""(text) => {
                     const field = document.getElementById('captcha');
                     const btn = document.querySelector('button.train_Search.btnDefault');
@@ -214,9 +194,6 @@ async def run():
                     }
                 }""", captcha_text)
         
-                # --------------------------------------------------
-                # STEP 6: RESULT DETECTION (EVENT-DRIVEN)
-                # --------------------------------------------------
                 try:
                     result_handle = await page.wait_for_function("""() => {
                         if (document.querySelector("app-payment, #pay-type")) return "SUCCESS";
@@ -228,10 +205,7 @@ async def run():
         
                 except:
                     status = "TIMEOUT"
-        
-                # --------------------------------------------------
-                # STEP 7: DECISION
-                # --------------------------------------------------
+
                 if status == "SUCCESS":
                     print(f"[+] SUCCESS in attempt {attempt}")
                     break
@@ -255,7 +229,6 @@ async def run():
         
         # PHASE 5 : Payment Selection
         try:
-            # Immediately after submitting Captcha, start the "Payment Sniper"
             await page.evaluate("""() => {
                 return new Promise((resolve) => {
                     const observer = new MutationObserver((mutations, obs) => {
