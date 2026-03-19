@@ -17,11 +17,11 @@ from datetime import datetime
 from solver import Solver
 
 CONFIG = {           
-    "TRAVEL_DATE": "20/03/2026", 
+    "TRAVEL_DATE": "21/03/2026", 
     "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
     "TRAIN_NUMBER": "12904" ,
-    "STRIKE_TIME": "09:59:57"
+    "STRIKE_TIME": "10:59:57"
 
 }
 
@@ -85,9 +85,7 @@ async def run():
                 status = await avail_slot.evaluate("el => el.innerText")
                 status = status.replace('\n', ' ').strip()
     
-                if ("AVAILABLE" in status or "WL" in status or "RAC" in status) and "#" not in status:
-                    print(f"[!] Booking Open! Status: {status}")
-                    
+                if ("AVAILABLE" in status or "WL" in status or "RAC" in status) and "#" not in status:                    
                     await avail_slot.click(force=True)
                     
                     book_btn = train_box.locator("button:has-text('Book Now')")
@@ -128,69 +126,131 @@ async def run():
             print(f'Speed selection failed: {e}')
         
        # PHASE 4 - CAPTCHA PAGE
-        print("Waiting for Captcha...")
         try:
-            last_b64 = ""
-            captcha_js = """(old) => {
-                const img = document.querySelector('.captcha-img');
-                if (img && img.src && img.src.startsWith('data:image') && img.src !== old) return img.src; 
-                return false;
-            }"""
-
-            b64_future = asyncio.create_task(page.wait_for_function(captcha_js, arg=last_b64, timeout=0))
-            
-            for attempt in range(1, 4):
-                print(f"[*] Captcha Attempt {attempt}/3...")
+            MAX_ATTEMPTS = 5
+        
+            # --------------------------------------------------
+            # STEP 1: WAIT FOR CAPTCHA TO EXIST (CRITICAL FIX)
+            # --------------------------------------------------
+            await page.wait_for_selector('.captcha-img', timeout=0)
+            print("[+] Captcha page loaded")
+        
+            # --------------------------------------------------
+            # STEP 2: INJECT FAST OBSERVER + INITIAL PUSH
+            # --------------------------------------------------
+            await page.evaluate("""
+            () => {
+                window.__captchaQueue = [];
+                window.__captchaLast = null;
+        
+                const pushCaptcha = () => {
+                    const img = document.querySelector('.captcha-img');
+                    if (!img || !img.src || !img.src.startsWith('data:image')) return;
+        
+                    if (img.src !== window.__captchaLast) {
+                        window.__captchaLast = img.src;
+                        window.__captchaQueue.push(img.src);
+                    }
+                };
+        
+                // 🔥 VERY IMPORTANT: capture FIRST captcha immediately
+                pushCaptcha();
+        
+                const observer = new MutationObserver(pushCaptcha);
+                observer.observe(document.body, { childList: true, subtree: true });
+        
+                // fallback fast scan (handles edge cases)
+                setInterval(pushCaptcha, 25);
+            }
+            """)
+        
+            # --------------------------------------------------
+            # STEP 3: MAIN ULTRA-FAST LOOP
+            # --------------------------------------------------
+            attempt = 0
+            start_time = time.time()
+        
+            while attempt < MAX_ATTEMPTS:
+        
+                # safety timeout (avoid infinite hang)
+                if time.time() - start_time > 15:
+                    print("[!] Captcha timeout overall")
+                    sys.exit(1)
+        
+                # pull captcha instantly
+                b64_src = await page.evaluate("() => window.__captchaQueue.shift() || null")
+        
+                if not b64_src:
+                    await asyncio.sleep(0.005)
+                    continue
+        
+                attempt += 1
+                print(f"[*] Attempt {attempt}")
+        
+                # --------------------------------------------------
+                # STEP 4: SOLVE (NON-BLOCKING)
+                # --------------------------------------------------
                 try:
-                    b64_handle = await b64_future
-                    b64_src = await b64_handle.json_value()
-                    if not b64_src: continue
-
-                    last_b64 = b64_src
-                    b64_future = asyncio.create_task(page.wait_for_function(captcha_js, arg=last_b64, timeout=0))
-            
-                    captcha_text = Solver(b64_src)
-
-                    await page.evaluate("""(text) => {
-                        const field = document.getElementById('captcha');
-                        const btn = document.querySelector('button.train_Search.btnDefault');
-                        if (field && btn) {
-                            field.value = text;
-                            // Trigger all possible validation events at once
-                            ['input', 'change', 'blur'].forEach(ev => 
-                                field.dispatchEvent(new Event(ev, { bubbles: true }))
-                            );
-                            btn.click();
-                        }
-                    }""", captcha_text)
-            
-
-                    success = False
-                    start_wait = time.time()
-                    while time.time() - start_wait < 3.5:
-                        # Check for success/error elements directly
-                        if await page.locator("app-payment, #pay-type").first.is_visible():
-                            success = True
-                            break
-                        if await page.locator(".ui-toast-message-error").first.is_visible():
-                            break
-                        await asyncio.sleep(0.05) 
-
-                    if success:
-                        print(f"[+] Success on Attempt {attempt}")
-                        if not b64_future.done(): b64_future.cancel()
-                        break
-                    else:
-                        print(f"[-] Invalid or Timeout (Attempt {attempt})")
-                        # Force refresh if we didn't land on payment
-                        await page.click('a[aria-label="Click to refresh Captcha"]', force=True)
-            
+                    captcha_text = await asyncio.to_thread(Solver, b64_src)
                 except Exception as e:
-                    print(f"[-] Fast-Retry: {e}")
-                    if attempt == 3: sys.exit(1)
-                        
+                    print(f"[-] Solver error: {e}")
+                    continue
+        
+                if not captcha_text or len(captcha_text) < 3:
+                    print("[-] Bad prediction, skipping")
+                    continue
+        
+                # --------------------------------------------------
+                # STEP 5: INJECT + SUBMIT (FASTEST POSSIBLE)
+                # --------------------------------------------------
+                await page.evaluate("""(text) => {
+                    const field = document.getElementById('captcha');
+                    const btn = document.querySelector('button.train_Search.btnDefault');
+        
+                    if (field && btn) {
+                        field.value = text;
+                        field.dispatchEvent(new Event('input', { bubbles: true }));
+                        btn.click();
+                    }
+                }""", captcha_text)
+        
+                # --------------------------------------------------
+                # STEP 6: RESULT DETECTION (EVENT-DRIVEN)
+                # --------------------------------------------------
+                try:
+                    result_handle = await page.wait_for_function("""() => {
+                        if (document.querySelector("app-payment, #pay-type")) return "SUCCESS";
+                        if (document.querySelector(".ui-toast-message-error")) return "FAIL";
+                        return null;
+                    }""", timeout=2000)
+        
+                    status = await result_handle.json_value()
+        
+                except:
+                    status = "TIMEOUT"
+        
+                # --------------------------------------------------
+                # STEP 7: DECISION
+                # --------------------------------------------------
+                if status == "SUCCESS":
+                    print(f"[+] SUCCESS in attempt {attempt}")
+                    break
+        
+                elif status == "FAIL":
+                    print(f"[-] Wrong captcha ({attempt}) → auto-refresh")
+                    continue
+        
+                else:
+                    print(f"[-] Timeout ({attempt})")
+                    continue
+        
+            else:
+                print("[!] CAPTCHA FAILED")
+                sys.exit(1)
+        
         except Exception as e:
-            print(f"[!] Critical Error: {e}")
+            print(f"[!] CRITICAL ERROR: {e}")
+            sys.exit(1)
 
         
         # PHASE 5 : Payment Selection
