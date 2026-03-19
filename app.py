@@ -17,11 +17,11 @@ from datetime import datetime
 from solver import Solver
 
 CONFIG = {           
-    "TRAVEL_DATE": "19/03/2026", 
+    "TRAVEL_DATE": "20/03/2026", 
     "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
     "TRAIN_NUMBER": "12904" ,
-    "STRIKE_TIME": "10:59:59"
+    "STRIKE_TIME": "09:59:57"
 
 }
 
@@ -49,18 +49,18 @@ async def run():
     
         # PHASE 2 - TRAIN SEARCH LOOP
         try:
-            train_heading_xpath = f"//div[contains(@class,     'train-heading')]//strong[contains(text(), '{CONFIG    ['TRAIN_NUMBER']}')]"
+            train_heading_xpath = f"//div[contains(@class,'train-heading')]//strong[contains(text(), '{CONFIG['TRAIN_NUMBER']}')]"
             
-            await page.wait_for_selector(train_heading_xpath,     timeout=15000)
+            await page.wait_for_selector(train_heading_xpath,timeout=15000)
             
-            train_box = page.locator("div.bull-back").filter(has=page.    locator(f"strong:has-text('{CONFIG['TRAIN_NUMBER']}')"))
+            train_box = page.locator("div.bull-back").filter(has=page.locator(f"strong:has-text('{CONFIG['TRAIN_NUMBER']}')"))
             
             await train_box.scroll_into_view_if_needed()
             print("Train Located...")
             
         except Exception as e:
             try:
-                train_box = page.locator("div.tou-mod").filter(has=page.    locator(f"strong:has-text('{CONFIG['TRAIN_NUMBER']}')"))
+                train_box = page.locator("div.tou-mod").filter(has=page.locator(f"strong:has-text('{CONFIG['TRAIN_NUMBER']}')"))
                 await train_box.scroll_into_view_if_needed()
             except:
                 return    
@@ -101,7 +101,6 @@ async def run():
     
         # PHASE 3 - PASSENGER ROOM
         try:
-            print("[*] Monitoring for Review Page...")
             await page.evaluate("""() => {
                 return new Promise((resolve) => {
                     const observer = new MutationObserver((mutations, obs) => {
@@ -130,110 +129,99 @@ async def run():
         
        # PHASE 4 - CAPTCHA PAGE
         print("Waiting for Captcha...")
-        try:            
-            await page.wait_for_selector("#captcha", timeout=0)
-
-            max_attempts = 3
+        try:
             last_b64 = ""
-            
             captcha_js = """(old) => {
                 const img = document.querySelector('.captcha-img');
-                if (img && img.src && img.src.startsWith('data:image') && img.src !== old) {
-                    return img.src; 
-                }
+                if (img && img.src && img.src.startsWith('data:image') && img.src !== old) return img.src; 
                 return false;
             }"""
 
-            b64_future = asyncio.create_task(page.wait_for_function(captcha_js, arg=last_b64))
+            b64_future = asyncio.create_task(page.wait_for_function(captcha_js, arg=last_b64, timeout=0))
             
-            for attempt in range(1, max_attempts + 1):
-                print(f"[*] Captcha Attempt {attempt}/{max_attempts}...")
-            
+            for attempt in range(1, 4):
+                print(f"[*] Captcha Attempt {attempt}/3...")
                 try:
                     b64_handle = await b64_future
                     b64_src = await b64_handle.json_value()
-                    
                     if not b64_src: continue
+
                     last_b64 = b64_src
+                    b64_future = asyncio.create_task(page.wait_for_function(captcha_js, arg=last_b64, timeout=0))
             
-                    b64_future = asyncio.create_task(page.wait_for_function(captcha_js, arg=last_b64))
-            
-                    captcha_text = Solver(b64_src)            
+                    captcha_text = Solver(b64_src)
 
                     await page.evaluate("""(text) => {
                         const field = document.getElementById('captcha');
                         const btn = document.querySelector('button.train_Search.btnDefault');
                         if (field && btn) {
                             field.value = text;
-                            field.dispatchEvent(new Event('input', { bubbles: true }));
-                            field.dispatchEvent(new Event('change', { bubbles: true }));
+                            // Trigger all possible validation events at once
+                            ['input', 'change', 'blur'].forEach(ev => 
+                                field.dispatchEvent(new Event(ev, { bubbles: true }))
+                            );
                             btn.click();
                         }
                     }""", captcha_text)
             
-                    success_nav = page.locator("app-payment, #pay-type").first
-                    error_toast = page.locator(".ui-toast-message-error").first
 
-                    try:
-                        done, pending = await asyncio.wait([
-                            asyncio.create_task(success_nav.wait_for(state="visible")),
-                            asyncio.create_task(error_toast.wait_for(state="visible"))
-                        ], return_when=asyncio.FIRST_COMPLETED, timeout=4)
+                    success = False
+                    start_wait = time.time()
+                    while time.time() - start_wait < 3.5:
+                        # Check for success/error elements directly
+                        if await page.locator("app-payment, #pay-type").first.is_visible():
+                            success = True
+                            break
+                        if await page.locator(".ui-toast-message-error").first.is_visible():
+                            break
+                        await asyncio.sleep(0.05) 
 
-                        for task in pending: task.cancel()
-                    except:
-                        pass
-
-                    if await success_nav.is_visible():
+                    if success:
                         print(f"[+] Success on Attempt {attempt}")
                         if not b64_future.done(): b64_future.cancel()
                         break
                     else:
-                        print(f"[-] Invalid Captcha or Timeout (Attempt {attempt})")
-                        await page.click('a[aria-label="Click to refresh Captcha"]', timeout=500)
+                        print(f"[-] Invalid or Timeout (Attempt {attempt})")
+                        # Force refresh if we didn't land on payment
+                        await page.click('a[aria-label="Click to refresh Captcha"]', force=True)
             
                 except Exception as e:
-                    print(f"[-] Retry error: {e}")
-                    if attempt == max_attempts: sys.exit(1)
+                    print(f"[-] Fast-Retry: {e}")
+                    if attempt == 3: sys.exit(1)
                         
         except Exception as e:
-            print(f"[!] Critical Error in Captcha Phase: {e}")
+            print(f"[!] Critical Error: {e}")
 
         
         # PHASE 5 : Payment Selection
         try:
-            await page.wait_for_selector("#pay-type",timeout=0)
-
+            # Immediately after submitting Captcha, start the "Payment Sniper"
             await page.evaluate("""() => {
                 return new Promise((resolve) => {
-
-                    const strikeLoop = setInterval(() => {
-                        const tabs = document.querySelectorAll('#pay-type .bank-type');
-                        const upiTab = Array.from(tabs).find(t => t.innerText.includes('BHIM/ UPI'));
-                        
+                    const observer = new MutationObserver((mutations, obs) => {
+                        // Target elements
+                        const upiTab = Array.from(document.querySelectorAll('.bank-type'))
+                                            .find(t => t.innerText.includes('BHIM/ UPI'));
+                        const paytm = Array.from(document.querySelectorAll('.bank-text'))
+                                           .find(o => o.innerText.includes('PAYTM'));
+                        const payBtn = document.querySelector('button.btn-primary');
+            
+                        // Logic: Click as soon as they appear
                         if (upiTab && !upiTab.classList.contains('active')) {
                             upiTab.click();
                         }
-
-                        const options = document.querySelectorAll('.bank-text');
-                        const targetOption = Array.from(options).find(o => o.innerText.includes('PAYTM'));
-                        
-                        if (targetOption) {
-                            targetOption.click();
-                            
-                            const payBtn = document.querySelector('button.btn-primary');
-                            if (payBtn) {
-                                payBtn.click();
-                                clearInterval(strikeLoop);
-                                resolve("Payment Initiated");
-                            }
+                        if (paytm) {
+                            paytm.click();
                         }
-                    }, 10); 
-
-                    setTimeout(() => { clearInterval(strikeLoop); resolve("Timeout"); }, 10000);
+                        if (payBtn && paytm) { // Only click pay if paytm was selected
+                            payBtn.click();
+                            obs.disconnect();
+                            resolve("Success");
+                        }
+                    });
+                    observer.observe(document.body, { childList: true, subtree: true });
                 });
             }""")
-
             print("Scan QR Now....")
         except Exception as e:
             print(f'Payment Phase Error : {e}')
