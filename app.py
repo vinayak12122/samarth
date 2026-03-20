@@ -10,6 +10,7 @@
 
 import sys
 import time
+import base64
 import asyncio
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
@@ -17,8 +18,8 @@ from datetime import datetime
 from solver import Solver
 
 CONFIG = {           
-    "TRAVEL_DATE": "21/03/2026", 
-    "TRAVEL_CLASS": "AC 3 Tier (3A)", 
+    "TRAVEL_DATE": "26/04/2026", 
+    "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
     "TRAIN_NUMBER": "12904" ,
     "STRIKE_TIME": "07:59:58"
@@ -127,102 +128,90 @@ async def run():
             }""")
         except Exception as e:
             print(f'Speed selection failed: {e}')
-        
-        # PHASE 4 - CAPTCHA PAGE
-        MAX_ATTEMPTS = 5
-        
-        try:
-            print("[*] Waiting for Review Journey page...")
-            await page.wait_for_selector("app-review-booking", timeout=0)
-            
-            await page.wait_for_selector("app-captcha", timeout=5000)
 
-            for attempt in range(1, MAX_ATTEMPTS + 1):
-                try:
-                    await page.wait_for_function(
-                        """() => {
-                            const img = document.querySelector('.captcha-img');
-                            // Check if img exists and src is a fresh data:image (not empty or old URL)
-                            return img && img.src && img.src.startsWith('data:image');
-                        }""",
-                        timeout=5000
-                    )
+        try:
+            dummy = "data:image/jpg;base64,iVBORw0KGgoAAAANSUhEUgAAAMsAAAAyCAYAAADyZi/iAAAElUlEQVR42u2dTUhUURTHRSRciCAiMogEEtIiQnApEUGEiAsRQkIiJIgIGVy0kZAWbUQkWgnRKkQGREQkRBCRkIg2Ii0igoiQFiGEDCGDDEzn1hFfhzPjzH33zfv6/+Fs3rx7z7v3vp/3vnM/bGiAIAiCIAiCIAiCIAiCIAiCIKicSkIhP0uG7AHZEtke2W+yAtkJ2THZV7IVsmmyPse+G8nuki2TfWd/xajUTapeLLo9J5KbxuixeIZLnNarpTjDQm6vkK3Kl7MKfSKbJLvg0/9lss/nOQMB9YOlneynyGLX4hl2RR4mz/a4wkIuZy0gkTI9wYil/xZOX3INS6phc1B5t5U2mKwhfVZJPxrHYRi5aibbLPPiG4CGydrM8MgzTOolGyN7rfSuJcvneCKy+UZ2029vBVjcNM6yyCZP1l1Fuh4ew3u1EtcGJVfrSj1kT+GoskeY5nR+2mNHPMeNJH4PxhWWDrJDkdVWFem2RJpfZJ1xbFBy81gZSvZZ5pU5rRvL9PIPUCNgiVDhKem4MvyYqHD/Q+X+8Tg2qOlFOcJ1KvO9MuAg3znLdIFFvACLo8IrwxDTU2TKvFx5ce96XBuUXDwXLl8kpU0BS3CwZBiQihAow68jDap6lYlueVomWJStIm2TAN/8Ve8Kux1dRsJsw3mA5fz8JpR6u+P5/V4tw7Wgy0Q/LyjPYyYMx6r0NSzSbkShHQFLTLpspec45DkZrefZDKNM3COsKG2cryV6RPfOi/RTgAWw1PrBK79JcmVCq131LhOHaLeV9jURrP4afa2JPIaS2Kb4Zgmw8Lwe6jw9qneZOMy9V2bi8KKFLzlT3glYAItN3tsVQNmpd5kMDDybLbVvILL0dRzUnAZgSRcs2gx9ia/11LNMZoJQWcdm9JasNYz6C2rsD1hiCAvnn7UJyTr+2L3G4WmpVQerewELYIlvBSvvW0G59tKRL+thGGABLFGERWrGoS/5gd8Rdn0BFsDiCpYvJnTs0Neq69AxYAEsUepZTJSu2ZGvOdeTkoAFsIQJy45yzWzSanLga9D1chfAAljChKVF2br898X2CwzvdjwSCym7AQtgiSUsfM0A814LHzvwN+9yiT5gASyhwsLXzf73DwowOZ/+Msrk60BCYTkBLCmAxQPMvgLMok+fk34XZcYEFrlAthmwJBQW/r2Dz+eSeuXTb05Z1jNV40TlYMRh2RDZjwCWBMPiAUY7hG7Bh98mZRuC0QGHmIflpCX3dEN8fNHHGMzgy12l5kTNW1FYQApYAvTH3xraYXTzPv3PODhkr8TwXI8YLJkyi2NTt/mrmCZYPI1/oLT1M5/PYA7PW7SApsg7TYeiWt/cQ+ZTBQvPEfx3VnHaYOH7zc7OH0GsIeNh1jiD845fsqJngaeZo3ljFnbyyZRtMRktdPJZaWu8bbyQdFhaZQSnAYKgst2pV2uoFQjSYZl1OU6HoKSC0q0cS9SPmoGgM0jM/MJ95YN2F7UDQf8gKVSI8pkephe1BEGVYTHLPq6ihiDoDJY8A3PMgJh/CDqaimUKEARBEARBEARBEARBULL0B6XRGwUEbDkEAAAAAElFTkSuQmCC"
+            await asyncio.to_thread(Solver, dummy)
+        except: pass
         
-                    b64_src = await page.locator(".captcha-img").get_attribute("src")
+        # PHASE 4 - CAPTCHA PAGE 
+        MAX_ATTEMPTS = 3
+
+        try:
+            await page.wait_for_selector("app-captcha", timeout=0)
+            last_img = None  
+
+            for a in range(1, MAX_ATTEMPTS + 1):
+                t = time.perf_counter()
+
+                b64 = None
+                for _ in range(30): 
+                    b64 = await page.evaluate("document.querySelector('img.captcha-img')?.src")
+                    if b64 and b64 != last_img:
+                        break
+                    await asyncio.sleep(0.01)
+                
+                if not b64 or b64 == last_img:
+                    print(f"[{a}] ✗ no new img")
+                    last_img = None  
+                    await page.evaluate("document.querySelector('a[aria-label*=refresh]')?.click()")
+                    await asyncio.sleep(0.2)
+                    continue
+
+                txt = (await asyncio.to_thread(Solver, b64) or "").strip()
+
+                ok = await page.evaluate("""t=>new Promise(r=>{
+                    const i=document.getElementById('captcha'),
+                          b=document.querySelector('button[type=submit].train_Search');
+                    if(!i||!b)return r(0);
                     
-                    if not b64_src:
-                        print(f"[-] No src on attempt {attempt}")
-                        continue
-        
-                    print(f"[*] Attempt {attempt} - Solving...")
-        
-                    captcha_text = await asyncio.to_thread(Solver, b64_src)
-        
-                    if not captcha_text or len(captcha_text) < 3:
-                        print(f"[-] Bad prediction ({attempt}), refreshing...")
-                        await asyncio.sleep(0.2)
-                        continue
-        
-                    await page.evaluate("""(t) => {
-                        const field = document.getElementById('captcha');
-                        const btn = document.querySelector('button.train_Search.btnDefault');
-                        if (field && btn) {
-                            field.value = t;
-                            // Trigger events so Angular sees the change
-                            field.dispatchEvent(new Event('input', { bubbles: true }));
-                            btn.click();
-                        }
-                    }""", captcha_text)
-        
-                    # --- RESULT CHECK ---
-                    try:
-                        result = await page.wait_for_function(
-                            """() => {
-                                if (document.querySelector("app-payment, #pay-type")) return "SUCCESS";
-                                if (document.querySelector(".ui-toast-message-error")) return "FAIL";
-                                return null;
-                            }""",
-                            timeout=2500
-                        )
-        
-                        status = await result.json_value()
-        
-                        if status == "SUCCESS":
-                            print(f"[+] CAPTCHA SOLVED on attempt {attempt}")
-                            break
-                        else:
-                            print(f"[-] Wrong captcha ({attempt}). Site auto-refreshing...")
-                            await asyncio.sleep(0.4) 
-        
-                    except Exception:
-                        continue
-        
-                except Exception as e:
-                    print(f"[!] Loop error: {e}")
-        
+                    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,t);
+                    i.dispatchEvent(new Event('input',{bubbles:1}));
+                    b.click();
+                    
+                    let n=0;
+                    const c=()=>{
+                        if(document.querySelector('app-payment,.bank-type')||location.href.includes('payment'))return r(1);
+                        if(document.querySelector('.ui-toast-message-error')||!i.value)return r(0);
+                        ++n<50?setTimeout(c,16):r(0);
+                    };
+                    c();
+                })""", txt)
+
+                ms = int((time.perf_counter() - t) * 1000)
+                
+                if ok:
+                    print(f"[{a}] ✓ {ms}ms")
+                    break
+                else:
+                    print(f"[{a}] ✗ wrong '{txt}' {ms}ms")
+                    last_img = b64 
+                    await asyncio.sleep(0.2) 
+                    
+            else:
+                print(f"✗ FAILED after {MAX_ATTEMPTS} attempts")
+
         except Exception as e:
-            print(f"[!!] Critical Phase Error: {e}")
+            print(f"[!!] {e}")
 
         # PHASE 5 : Payment Selection
         try:
             await page.evaluate("""() => {
                 return new Promise((resolve) => {
                     const observer = new MutationObserver((mutations, obs) => {
-                        // Target elements
                         const upiTab = Array.from(document.querySelectorAll('.bank-type'))
                                             .find(t => t.innerText.includes('BHIM/ UPI'));
                         const paytm = Array.from(document.querySelectorAll('.bank-text'))
                                            .find(o => o.innerText.includes('PAYTM'));
                         const payBtn = document.querySelector('button.btn-primary');
             
-                        // Logic: Click as soon as they appear
                         if (upiTab && !upiTab.classList.contains('active')) {
                             upiTab.click();
                         }
                         if (paytm) {
                             paytm.click();
                         }
-                        if (payBtn && paytm) { // Only click pay if paytm was selected
+                        if (payBtn && paytm) { 
                             payBtn.click();
                             obs.disconnect();
                             resolve("Success");
