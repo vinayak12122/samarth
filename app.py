@@ -18,10 +18,10 @@ from solver import Solver
 
 CONFIG = {           
     "TRAVEL_DATE": "21/03/2026", 
-    "TRAVEL_CLASS": "Sleeper (SL)", 
+    "TRAVEL_CLASS": "AC 3 Tier (3A)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
     "TRAIN_NUMBER": "12904" ,
-    "STRIKE_TIME": "10:59:57"
+    "STRIKE_TIME": "07:59:58"
 
 }
 
@@ -53,12 +53,15 @@ async def run():
             
             await page.wait_for_selector(train_heading_xpath,timeout=15000)
             
-            train_box = page.locator("div.bull-back").filter(has=page.locator(f"strong:has-text('{CONFIG['TRAIN_NUMBER']}')"))
+            train_box = page.locator("div.bull-back").filter(
+                has=page.locator(f"strong:has-text('({CONFIG['TRAIN_NUMBER']})')")
+            )
             
             await train_box.scroll_into_view_if_needed()
             print("Train Located...")
             
         except Exception as e:
+            print("Train not found")
             try:
                 train_box = page.locator("div.tou-mod").filter(has=page.locator(f"strong:has-text('{CONFIG['TRAIN_NUMBER']}')"))
                 await train_box.scroll_into_view_if_needed()
@@ -125,108 +128,81 @@ async def run():
         except Exception as e:
             print(f'Speed selection failed: {e}')
         
-       # PHASE 4 - CAPTCHA PAGE
+        # PHASE 4 - CAPTCHA PAGE
+        MAX_ATTEMPTS = 5
+        
         try:
-            MAX_ATTEMPTS = 5
-        
-            await page.wait_for_selector('.captcha-img', timeout=0)
-        
-            await page.evaluate("""
-            () => {
-                window.__captchaQueue = [];
-                window.__captchaLast = null;
-        
-                const pushCaptcha = () => {
-                    const img = document.querySelector('.captcha-img');
-                    if (!img || !img.src || !img.src.startsWith('data:image')) return;
-        
-                    if (img.src !== window.__captchaLast) {
-                        window.__captchaLast = img.src;
-                        window.__captchaQueue.push(img.src);
-                    }
-                };
-        
-                pushCaptcha();
-        
-                const observer = new MutationObserver(pushCaptcha);
-                observer.observe(document.body, { childList: true, subtree: true });
-        
-                setInterval(pushCaptcha, 25);
-            }
-            """)
-        
-            attempt = 0
-            start_time = time.time()
-        
-            while attempt < MAX_ATTEMPTS:
-        
-                if time.time() - start_time > 15:
-                    print("[!] Captcha timeout overall")
-                    sys.exit(1)
-        
-                b64_src = await page.evaluate("() => window.__captchaQueue.shift() || null")
-        
-                if not b64_src:
-                    await asyncio.sleep(0.005)
-                    continue
-        
-                attempt += 1
-                print(f"[*] Attempt {attempt}")
+            print("[*] Waiting for Review Journey page...")
+            await page.wait_for_selector("app-review-booking", timeout=0)
+            
+            await page.wait_for_selector("app-captcha", timeout=5000)
 
+            for attempt in range(1, MAX_ATTEMPTS + 1):
                 try:
+                    await page.wait_for_function(
+                        """() => {
+                            const img = document.querySelector('.captcha-img');
+                            // Check if img exists and src is a fresh data:image (not empty or old URL)
+                            return img && img.src && img.src.startsWith('data:image');
+                        }""",
+                        timeout=5000
+                    )
+        
+                    b64_src = await page.locator(".captcha-img").get_attribute("src")
+                    
+                    if not b64_src:
+                        print(f"[-] No src on attempt {attempt}")
+                        continue
+        
+                    print(f"[*] Attempt {attempt} - Solving...")
+        
                     captcha_text = await asyncio.to_thread(Solver, b64_src)
+        
+                    if not captcha_text or len(captcha_text) < 3:
+                        print(f"[-] Bad prediction ({attempt}), refreshing...")
+                        await asyncio.sleep(0.2)
+                        continue
+        
+                    await page.evaluate("""(t) => {
+                        const field = document.getElementById('captcha');
+                        const btn = document.querySelector('button.train_Search.btnDefault');
+                        if (field && btn) {
+                            field.value = t;
+                            // Trigger events so Angular sees the change
+                            field.dispatchEvent(new Event('input', { bubbles: true }));
+                            btn.click();
+                        }
+                    }""", captcha_text)
+        
+                    # --- RESULT CHECK ---
+                    try:
+                        result = await page.wait_for_function(
+                            """() => {
+                                if (document.querySelector("app-payment, #pay-type")) return "SUCCESS";
+                                if (document.querySelector(".ui-toast-message-error")) return "FAIL";
+                                return null;
+                            }""",
+                            timeout=2500
+                        )
+        
+                        status = await result.json_value()
+        
+                        if status == "SUCCESS":
+                            print(f"[+] CAPTCHA SOLVED on attempt {attempt}")
+                            break
+                        else:
+                            print(f"[-] Wrong captcha ({attempt}). Site auto-refreshing...")
+                            await asyncio.sleep(0.4) 
+        
+                    except Exception:
+                        continue
+        
                 except Exception as e:
-                    print(f"[-] Solver error: {e}")
-                    continue
-        
-                if not captcha_text or len(captcha_text) < 3:
-                    print("[-] Bad prediction, skipping")
-                    continue
-        
-                await page.evaluate("""(text) => {
-                    const field = document.getElementById('captcha');
-                    const btn = document.querySelector('button.train_Search.btnDefault');
-        
-                    if (field && btn) {
-                        field.value = text;
-                        field.dispatchEvent(new Event('input', { bubbles: true }));
-                        btn.click();
-                    }
-                }""", captcha_text)
-        
-                try:
-                    result_handle = await page.wait_for_function("""() => {
-                        if (document.querySelector("app-payment, #pay-type")) return "SUCCESS";
-                        if (document.querySelector(".ui-toast-message-error")) return "FAIL";
-                        return null;
-                    }""", timeout=2000)
-        
-                    status = await result_handle.json_value()
-        
-                except:
-                    status = "TIMEOUT"
-
-                if status == "SUCCESS":
-                    print(f"[+] SUCCESS in attempt {attempt}")
-                    break
-        
-                elif status == "FAIL":
-                    print(f"[-] Wrong captcha ({attempt}) → auto-refresh")
-                    continue
-        
-                else:
-                    print(f"[-] Timeout ({attempt})")
-                    continue
-        
-            else:
-                print("[!] CAPTCHA FAILED")
-                sys.exit(1)
+                    print(f"[!] Loop error: {e}")
         
         except Exception as e:
-            print(f"[!] CRITICAL ERROR: {e}")
-            sys.exit(1)
+            print(f"[!!] Critical Phase Error: {e}")
 
-        
         # PHASE 5 : Payment Selection
         try:
             await page.evaluate("""() => {
