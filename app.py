@@ -18,10 +18,10 @@ from datetime import datetime
 from solver import Solver
 
 CONFIG = {           
-    "TRAVEL_DATE": "26/04/2026", 
-    "TRAVEL_CLASS": "Sleeper (SL)", 
+    "TRAVEL_DATE": "24/05/2026", 
+    "TRAVEL_CLASS": "AC 3 Tier (3A)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
-    "TRAIN_NUMBER": "12904" ,
+    "TRAIN_NUMBER": "20942" ,
     "STRIKE_TIME": "07:59:58"
 
 }
@@ -139,24 +139,19 @@ async def run():
 
         try:
             await page.wait_for_selector("app-captcha", timeout=0)
-            last_img = None  
 
             for a in range(1, MAX_ATTEMPTS + 1):
                 t = time.perf_counter()
 
-                b64 = None
-                for _ in range(30): 
-                    b64 = await page.evaluate("document.querySelector('img.captcha-img')?.src")
-                    if b64 and b64 != last_img:
-                        break
-                    await asyncio.sleep(0.01)
+                b64 = await page.evaluate("""() => {
+                    const img = document.querySelector('img.captcha-img');
+                    return img?.src?.startsWith('data:image') ? img.src : null;
+                }""")
                 
-                if not b64 or b64 == last_img:
-                    print(f"[{a}] ✗ no new img")
-                    last_img = None  
-                    await page.evaluate("document.querySelector('a[aria-label*=refresh]')?.click()")
-                    await asyncio.sleep(0.2)
-                    continue
+                # if not b64:
+                #     print(f"[{a}] ✗ no img")
+                #     await asyncio.sleep(0.3)
+                #     continue
 
                 txt = (await asyncio.to_thread(Solver, b64) or "").strip()
 
