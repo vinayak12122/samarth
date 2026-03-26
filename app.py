@@ -18,11 +18,11 @@ from datetime import datetime
 from solver import Solver
 
 CONFIG = {           
-    "TRAVEL_DATE": "24/05/2026", 
-    "TRAVEL_CLASS": "AC 3 Tier (3A)", 
+    "TRAVEL_DATE": "28/03/2026", 
+    "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
-    "TRAIN_NUMBER": "20942" ,
-    "STRIKE_TIME": "07:59:58"
+    "TRAIN_NUMBER": "12904" ,
+    "STRIKE_TIME": "20:59:57"
 
 }
 
@@ -42,18 +42,31 @@ async def run():
     
         browser_context = browser.contexts[0]
         page = browser_context.pages[0] if browser_context.pages else     await browser_context.new_page()
+
+        current_url = page.url
+        print(f"Current URL : {current_url}")
     
         await Stealth().apply_stealth_async(page)
     
         strike_ts = get_target_timestamp(CONFIG["STRIKE_TIME"])
     
     
+        trains = await page.evaluate("""() => {
+                const headings = document.querySelectorAll('div.train-heading strong');
+                return Array.from(headings).map(el => el.innerText.trim());
+            }""")
+            
+        print(f"Found {len(trains)} trains:")
+        for i, train in enumerate(trains, 1):
+            print(f"  {i}. {train}")
+
         # PHASE 2 - TRAIN SEARCH LOOP
         try:
             train_heading_xpath = f"//div[contains(@class,'train-heading')]//strong[contains(text(), '{CONFIG['TRAIN_NUMBER']}')]"
             
             await page.wait_for_selector(train_heading_xpath,timeout=15000)
-            
+
+
             train_box = page.locator("div.bull-back").filter(
                 has=page.locator(f"strong:has-text('({CONFIG['TRAIN_NUMBER']})')")
             )
@@ -74,32 +87,55 @@ async def run():
     
         while time.time() < strike_ts:
             await asyncio.sleep(0.1)
-    
+            
         print("Strike Startted...")   
-        while True:
+        await page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            delete navigator.__proto__.webdriver;
+            window.chrome = {runtime: {}, loadTimes: () => {}, csi: () => {}};
+        """)
+        
+        attempt = 0
+        MAX_ATTEMPTS = 1000
+        
+        refresh_tab = train_box.locator("div.pre-avl, li.ui-tabmenuitem").filter(
+            has_text=CONFIG['TRAVEL_CLASS']
+        ).first
+        
+        avail_slot = train_box.locator("div.pre-avl").filter(has_text=day_date_str).first
+        book_btn = train_box.locator("button:has-text('Book Now')")
+        
+        while attempt < MAX_ATTEMPTS:
+            attempt += 1
+            
             try:
-                current_refresh = train_box.locator("div.pre-avl, li.ui-tabmenuitem").filter(has_text=CONFIG['TRAVEL_CLASS']).first
-                if await current_refresh.count() > 0:
-                    await current_refresh.click(force=True, no_wait_after=True)
-
-                await asyncio.sleep(0.35)
+                if await refresh_tab.count() > 0:
+                    await refresh_tab.click(force=True, no_wait_after=True)
                 
-                avail_slot = train_box.locator("div.pre-avl").filter(has_text=day_date_str).first
-    
-                status = await avail_slot.evaluate("el => el.innerText")
+                await asyncio.sleep(0.10)
+                
+                status = await avail_slot.evaluate("el => el?.innerText || ''")
                 status = status.replace('\n', ' ').strip()
-    
-                if ("AVAILABLE" in status or "WL" in status or "RAC" in status) and "#" not in status:                    
+                
+                if '#' in status:
+                    continue
+                
+                if 'AVAILABLE' in status or 'WL' in status or 'RAC' in status:
+                    
                     await avail_slot.click(force=True)
                     
-                    book_btn = train_box.locator("button:has-text('Book Now')")
+                    await asyncio.sleep(0.10)
+                    
                     await book_btn.click(force=True)
+                    
                     break
-                elif "#" in status:
-                    continue
-            except:
-                continue        
-
+                    
+            except Exception as e:
+                await asyncio.sleep(0.05)
+                continue
+        
+        else:
+            print(f"✗ Failed after {MAX_ATTEMPTS} attempts")
     
         # PHASE 3 - PASSENGER ROOM
         try:
@@ -136,58 +172,76 @@ async def run():
         
         # PHASE 4 - CAPTCHA PAGE 
         MAX_ATTEMPTS = 3
-
         try:
             await page.wait_for_selector("app-captcha", timeout=0)
-
+        
             for a in range(1, MAX_ATTEMPTS + 1):
                 t = time.perf_counter()
-
+        
                 b64 = await page.evaluate("""() => {
                     const img = document.querySelector('img.captcha-img');
                     return img?.src?.startsWith('data:image') ? img.src : null;
                 }""")
                 
-                # if not b64:
-                #     print(f"[{a}] ✗ no img")
-                #     await asyncio.sleep(0.3)
-                #     continue
-
-                txt = (await asyncio.to_thread(Solver, b64) or "").strip()
-
-                ok = await page.evaluate("""t=>new Promise(r=>{
-                    const i=document.getElementById('captcha'),
-                          b=document.querySelector('button[type=submit].train_Search');
-                    if(!i||!b)return r(0);
+                if not b64:
+                    print(f"[{a}] ✗ no img, retrying...")
+                    await asyncio.sleep(0.3)
+                    continue
+        
+                try:
+                    txt = (await asyncio.to_thread(Solver, b64) or "").strip()
+                except Exception as solver_error:
+                    print(f"[{a}] ✗ Solver error: {solver_error}")
+                    await asyncio.sleep(0.3)
+                    continue
+        
+                if not txt:
+                    print(f"[{a}] ✗ empty captcha text")
+                    await asyncio.sleep(0.3)
+                    continue
+        
+                ok = await page.evaluate("""t => new Promise(r => {
+                    const i = document.getElementById('captcha'),
+                          b = document.querySelector('button[type=submit].train_Search');
                     
-                    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(i,t);
-                    i.dispatchEvent(new Event('input',{bubbles:1}));
+                    if (!i || !b) return r(0);
+                    
+                    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, t);
+                    i.dispatchEvent(new Event('input', {bubbles: true}));
+                    
                     b.click();
                     
-                    let n=0;
-                    const c=()=>{
-                        if(document.querySelector('app-payment,.bank-type')||location.href.includes('payment'))return r(1);
-                        if(document.querySelector('.ui-toast-message-error')||!i.value)return r(0);
-                        ++n<50?setTimeout(c,16):r(0);
+                    let n = 0;
+                    const c = () => {
+                        if (document.querySelector('app-payment, .bank-type') || 
+                            location.href.includes('payment')) {
+                            return r(1);
+                        }
+                        
+                        if (document.querySelector('.ui-toast-message-error') || 
+                            !i.value) {
+                            return r(0);
+                        }
+                        
+                        ++n < 50 ? setTimeout(c, 16) : r(0);
                     };
+                    
                     c();
                 })""", txt)
-
+        
                 ms = int((time.perf_counter() - t) * 1000)
                 
                 if ok:
-                    print(f"[{a}] ✓ {ms}ms")
+                    print(f"[{a}] ✓ Success in {ms}ms")
                     break
                 else:
-                    print(f"[{a}] ✗ wrong '{txt}' {ms}ms")
-                    last_img = b64 
-                    await asyncio.sleep(0.2) 
+                    print(f"[{a}] ✗ Failed in {ms}ms, retrying...")
+                    await asyncio.sleep(0.3)
                     
             else:
-                print(f"✗ FAILED after {MAX_ATTEMPTS} attempts")
-
+                print(f"✗ CAPTCHA FAILED after {MAX_ATTEMPTS} attempts")
         except Exception as e:
-            print(f"[!!] {e}")
+            print(f"Unexpected error: {type(e).__name__}: {e}")
 
         # PHASE 5 : Payment Selection
         try:
