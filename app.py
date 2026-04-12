@@ -11,18 +11,20 @@
 import sys
 import time
 import base64
+import segno
 import asyncio
+import random
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from datetime import datetime
 from solver import Solver
 
 CONFIG = {           
-    "TRAVEL_DATE": "28/03/2026", 
+    "TRAVEL_DATE": "12/04/2026", 
     "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
-    "TRAIN_NUMBER": "12904" ,
-    "STRIKE_TIME": "20:59:57"
+    "TRAIN_NUMBER": "12139" ,
+    "STRIKE_TIME": "10:59:58"
 
 }
 
@@ -41,12 +43,63 @@ async def run():
         browser = await async_playwright_instance.chromium.connect_over_cdp("http://localhost:9222")
     
         browser_context = browser.contexts[0]
-        page = browser_context.pages[0] if browser_context.pages else     await browser_context.new_page()
+        page = browser_context.pages[0] if browser_context.pages else await browser_context.new_page()
+
+        await page.route("**/*.{png,jpg,jpeg,gif,webp,svg}", lambda route: 
+            route.continue_() if any(x in route.request.url.lower() for x in ["captcha", "paytm", "qr"]) else route.abort())
+        
+        await page.route("**/*.{woff,woff2,ttf}", lambda route: route.abort())
+
+        await Stealth().apply_stealth_async(page)
+        await page.add_init_script("""
+    Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+    delete navigator.__proto__.webdriver;
+    
+    window.chrome = {
+        runtime: {},
+        loadTimes: function() {},
+        csi: function() {},
+        app: {}
+    };
+    
+    // Extra safety layers
+    const originalQuery = window.navigator.permissions.query;
+    window.navigator.permissions.query = (parameters) => (
+        parameters.name === 'notifications' ?
+            Promise.resolve({ state: Notification.permission }) :
+            originalQuery(parameters)
+    );
+    
+    Object.defineProperty(navigator, 'plugins', {
+        get: () => [1, 2, 3, 4, 5],
+    });
+    
+    Object.defineProperty(navigator, 'languages', {
+        get: () => ['en-US', 'en', 'hi'],
+    });
+    
+    // Remove Playwright signatures
+    delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
+    delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+    delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+    
+    // WebGL fingerprint
+    const getParameter = WebGLRenderingContext.prototype.getParameter;
+    WebGLRenderingContext.prototype.getParameter = function(parameter) {
+        if (parameter === 37445) return 'Intel Inc.';
+        if (parameter === 37446) return 'Intel Iris OpenGL Engine';
+        return getParameter.call(this, parameter);
+    };
+    
+    // Make dimensions realistic
+    Object.defineProperty(window, 'outerWidth', {get: () => window.innerWidth});
+    Object.defineProperty(window, 'outerHeight', {get: () => window.innerHeight});
+""")
+
 
         current_url = page.url
         print(f"Current URL : {current_url}")
     
-        await Stealth().apply_stealth_async(page)
     
         strike_ts = get_target_timestamp(CONFIG["STRIKE_TIME"])
     
@@ -84,19 +137,6 @@ async def run():
     
         date_obj = datetime.strptime(CONFIG["TRAVEL_DATE"], "%d/%m/%Y")
         day_date_str = date_obj.strftime("%d %b")
-    
-        while time.time() < strike_ts:
-            await asyncio.sleep(0.1)
-            
-        print("Strike Startted...")   
-        await page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            delete navigator.__proto__.webdriver;
-            window.chrome = {runtime: {}, loadTimes: () => {}, csi: () => {}};
-        """)
-        
-        attempt = 0
-        MAX_ATTEMPTS = 1000
         
         refresh_tab = train_box.locator("div.pre-avl, li.ui-tabmenuitem").filter(
             has_text=CONFIG['TRAVEL_CLASS']
@@ -104,38 +144,69 @@ async def run():
         
         avail_slot = train_box.locator("div.pre-avl").filter(has_text=day_date_str).first
         book_btn = train_box.locator("button:has-text('Book Now')")
+
+        success_flag = asyncio.Event()
+
+        async def on_response(response):
+            url = response.url.lower()
+            if "avlfarenquiry" in url and not success_flag.is_set():
+                try:
+                    data = await response.json()
+                    day_list = data.get("avlDayList", [])
+                    
+                    if day_list:
+                        status = day_list[0].get("availablityStatus", "")
+                        # print(f"📡 [NETWORK] Status: {status}")
+
+                        if any(x in status for x in ["AVAILABLE", "RAC", "CURR_AVBL", "WL"]) and "#" not in status:
+                            
+                            await avail_slot.dispatch_event("click")
+                            await book_btn.dispatch_event("click")
+                            success_flag.set()
+                        else:
+                            print(f"❌ No seats: {status}")
+                except Exception as e:
+                   
+                    pass
+
+        browser_context.on("response",on_response)
         
-        while attempt < MAX_ATTEMPTS:
-            attempt += 1
-            
-            try:
-                if await refresh_tab.count() > 0:
-                    await refresh_tab.click(force=True, no_wait_after=True)
-                
-                await asyncio.sleep(0.10)
-                
-                status = await avail_slot.evaluate("el => el?.innerText || ''")
-                status = status.replace('\n', ' ').strip()
-                
-                if '#' in status:
-                    continue
-                
-                if 'AVAILABLE' in status or 'WL' in status or 'RAC' in status:
-                    
-                    await avail_slot.click(force=True)
-                    
-                    await asyncio.sleep(0.10)
-                    
-                    await book_btn.click(force=True)
-                    
+        print("Strike Startted...") 
+        while time.time() < (strike_ts - 0.5) :
+            await asyncio.sleep(0.01)
+
+        try:
+            triggered = False
+            for attempt in range(20):
+                if success_flag.is_set():
+                    triggered = True
                     break
-                    
-            except Exception as e:
-                await asyncio.sleep(0.05)
-                continue
-        
-        else:
-            print(f"✗ Failed after {MAX_ATTEMPTS} attempts")
+
+                
+                print(f'Attempt: {attempt+1}')
+
+                await refresh_tab.click(force=True,timeout=0)
+    
+                try:
+                    await asyncio.wait_for(success_flag.wait(),timeout=0.6)
+                    triggered = True
+                    break
+                except asyncio.TimeoutError:
+                    continue
+                                        
+            if not triggered:
+                await avail_slot.click(force=True)
+                await asyncio.sleep(0.1)
+                await book_btn.click(force=True)
+
+        except Exception as e:
+            print(f"❌ Error during strike: {e}")
+        finally:
+            try:
+                browser_context.remove_listener("response", on_response)
+            except:
+                pass
+
     
         # PHASE 3 - PASSENGER ROOM
         try:
@@ -162,6 +233,13 @@ async def run():
                     observer.observe(document.body, { childList: true, subtree: true });
                 });
             }""")
+
+            # await page.locator("tr.link:has-text('BHIM/UPI') .ui-radiobutton-box").first.click(delay=random.randint(8, 15),timeout=0)
+            
+            # await asyncio.sleep(random.uniform(0.06, 0.11))
+
+            
+            # await page.locator("button[type='submit'].btnDefault").first.click(delay=random.randint(6, 12),timeout=3000)
         except Exception as e:
             print(f'Speed selection failed: {e}')
 
@@ -183,10 +261,10 @@ async def run():
                     return img?.src?.startsWith('data:image') ? img.src : null;
                 }""")
                 
-                if not b64:
-                    print(f"[{a}] ✗ no img, retrying...")
-                    await asyncio.sleep(0.3)
-                    continue
+                # if not b64:
+                #     print(f"[{a}] ✗ no img, retrying...")
+                #     await asyncio.sleep(0.3)
+                #     continue
         
                 try:
                     txt = (await asyncio.to_thread(Solver, b64) or "").strip()
@@ -232,7 +310,6 @@ async def run():
                 ms = int((time.perf_counter() - t) * 1000)
                 
                 if ok:
-                    print(f"[{a}] ✓ Success in {ms}ms")
                     break
                 else:
                     print(f"[{a}] ✗ Failed in {ms}ms, retrying...")
@@ -245,34 +322,46 @@ async def run():
 
         # PHASE 5 : Payment Selection
         try:
+            
             await page.evaluate("""() => {
                 return new Promise((resolve) => {
-                    const observer = new MutationObserver((mutations, obs) => {
-                        const upiTab = Array.from(document.querySelectorAll('.bank-type'))
-                                            .find(t => t.innerText.includes('BHIM/ UPI'));
-                        const paytm = Array.from(document.querySelectorAll('.bank-text'))
-                                           .find(o => o.innerText.includes('PAYTM'));
+                    const startTime = Date.now();
+                    
+                    function strike() {
+                        
                         const payBtn = document.querySelector('button.btn-primary');
-            
-                        if (upiTab && !upiTab.classList.contains('active')) {
-                            upiTab.click();
-                        }
-                        if (paytm) {
-                            paytm.click();
-                        }
-                        if (payBtn && paytm) { 
+                                
+                        if (payBtn && !payBtn.disabled) {
                             payBtn.click();
-                            obs.disconnect();
-                            resolve("Success");
+                            resolve("Click Successful");
+                            return; 
                         }
-                    });
-                    observer.observe(document.body, { childList: true, subtree: true });
+
+                        if (Date.now() - startTime > 25000) {
+                            resolve("UI Strike Timeout");
+                            return;
+                        }
+
+                        // Request the next frame
+                        requestAnimationFrame(strike);
+                    }
+
+                    // Start the loop
+                    strike();
                 });
             }""")
-            print("Scan QR Now....")
-        except Exception as e:
-            print(f'Payment Phase Error : {e}')
+            
 
+        except Exception as e:
+            print(f'💥 Payment Phase Error: {e}')
+
+        # PHASE 6 : Initiating QR Generation
+        try:
+            qr_selector = 'span[onclick*="submitUpiQrForm"]'
+            target_span = await page.wait_for_selector(qr_selector, state="visible", timeout=0)
+            await target_span.click()
+        except Exception as e:
+            print(f'QR Generation Error: {e}')
 
     
     except Exception as e:

@@ -24,6 +24,10 @@ print("[+] Model warmed up & ready....")
 
 def Solver(b64_string):
     try:
+
+        if not b64_string:
+            return ""
+        
         header_end = b64_string.find(',')
         if header_end != -1:
             b64_string = b64_string[header_end+1:]
@@ -36,10 +40,10 @@ def Solver(b64_string):
 
         for result in result_gen:
             text = result.get('rec_text', '')
-            return text
+            return str(text)
     except Exception as e:
         print(f'Solver Error : {e}')
-        return None,0
+        return ''
 
 
 
