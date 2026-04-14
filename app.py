@@ -2,7 +2,7 @@
 
 # 1st - taskkill /F /IM msedge.exe /T
 
-# 2nd - "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --remote-debugging-port=9222 --user-data-dir="C:\Users\RAM\AppData\Local\Microsoft\Edge\User Data\Profile 1" --disable-blink-features=AutomationControlled
+# 2nd - "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --remote-debugging-port=9227 --user-data-dir="C:\edge_temp_profile" --disable-blink-features=AutomationControlled
 
 # cd samarth
 
@@ -20,10 +20,10 @@ from datetime import datetime
 from solver import Solver
 
 CONFIG = {           
-    "TRAVEL_DATE": "12/04/2026", 
+    "TRAVEL_DATE": "15/04/2026", 
     "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
-    "TRAIN_NUMBER": "12139" ,
+    "TRAIN_NUMBER": "12362" ,
     "STRIKE_TIME": "10:59:58"
 
 }
@@ -40,7 +40,7 @@ async def run():
     async_playwright_instance = await async_playwright().start()
     try:
 
-        browser = await async_playwright_instance.chromium.connect_over_cdp("http://localhost:9222")
+        browser = await async_playwright_instance.chromium.connect_over_cdp("http://localhost:9227")
     
         browser_context = browser.contexts[0]
         page = browser_context.pages[0] if browser_context.pages else await browser_context.new_page()
@@ -323,31 +323,55 @@ async def run():
         # PHASE 5 : Payment Selection
         try:
             
+            # await page.evaluate("""() => {
+            #     return new Promise((resolve) => {
+            #         const startTime = Date.now();
+                    
+            #         function strike() {
+                        
+            #             const payBtn = document.querySelector('button.btn-primary');
+                                
+            #             if (payBtn && !payBtn.disabled) {
+            #                 payBtn.click();
+            #                 resolve("Click Successful");
+            #                 return; 
+            #             }
+
+            #             if (Date.now() - startTime > 25000) {
+            #                 resolve("UI Strike Timeout");
+            #                 return;
+            #             }
+
+            #             // Request the next frame
+            #             requestAnimationFrame(strike);
+            #         }
+
+            #         // Start the loop
+            #         strike();
+            #     });
+            # }""")
             await page.evaluate("""() => {
                 return new Promise((resolve) => {
-                    const startTime = Date.now();
-                    
-                    function strike() {
-                        
+                    const observer = new MutationObserver((mutations, obs) => {
+                        const upiTab = Array.from(document.querySelectorAll('.bank-type'))
+                                            .find(t => t.innerText.includes('BHIM/ UPI'));
+                        const paytm = Array.from(document.querySelectorAll('.bank-text'))
+                                           .find(o => o.innerText.includes('PAYTM'));
                         const payBtn = document.querySelector('button.btn-primary');
-                                
-                        if (payBtn && !payBtn.disabled) {
+            
+                        if (upiTab && !upiTab.classList.contains('active')) {
+                            upiTab.click();
+                        }
+                        if (paytm) {
+                            paytm.click();
+                        }
+                        if (payBtn && paytm) { 
                             payBtn.click();
-                            resolve("Click Successful");
-                            return; 
+                            obs.disconnect();
+                            resolve("Success");
                         }
-
-                        if (Date.now() - startTime > 25000) {
-                            resolve("UI Strike Timeout");
-                            return;
-                        }
-
-                        // Request the next frame
-                        requestAnimationFrame(strike);
-                    }
-
-                    // Start the loop
-                    strike();
+                    });
+                    observer.observe(document.body, { childList: true, subtree: true });
                 });
             }""")
             
@@ -356,12 +380,12 @@ async def run():
             print(f'💥 Payment Phase Error: {e}')
 
         # PHASE 6 : Initiating QR Generation
-        try:
-            qr_selector = 'span[onclick*="submitUpiQrForm"]'
-            target_span = await page.wait_for_selector(qr_selector, state="visible", timeout=0)
-            await target_span.click()
-        except Exception as e:
-            print(f'QR Generation Error: {e}')
+        # try:
+        #     qr_selector = 'span[onclick*="submitUpiQrForm"]'
+        #     target_span = await page.wait_for_selector(qr_selector, state="visible", timeout=0)
+        #     await target_span.click()
+        # except Exception as e:
+        #     print(f'QR Generation Error: {e}')
 
     
     except Exception as e:
