@@ -20,10 +20,10 @@ from solver import Solver
 
 CONFIG = {           
     "TRAVEL_DATE": "09/05/2026", 
-    "TRAVEL_CLASS": "Sleeper (SL)", 
+    "TRAVEL_CLASS": "AC 3 Tier (3A)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
     "TRAIN_NUMBER": "12904" ,
-    "STRIKE_TIME": "10:59:59"
+    "STRIKE_TIME": "09:59:59"
 
 }
 
