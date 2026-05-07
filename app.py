@@ -11,7 +11,6 @@
 import sys
 import time
 import base64
-import segno
 import asyncio
 import random
 from playwright.async_api import async_playwright
@@ -20,11 +19,11 @@ from datetime import datetime
 from solver import Solver
 
 CONFIG = {           
-    "TRAVEL_DATE": "15/04/2026", 
+    "TRAVEL_DATE": "09/05/2026", 
     "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
-    "TRAIN_NUMBER": "12362" ,
-    "STRIKE_TIME": "10:59:58"
+    "TRAIN_NUMBER": "12904" ,
+    "STRIKE_TIME": "10:59:59"
 
 }
 
@@ -254,7 +253,6 @@ async def run():
             await page.wait_for_selector("app-captcha", timeout=0)
         
             for a in range(1, MAX_ATTEMPTS + 1):
-                t = time.perf_counter()
         
                 b64 = await page.evaluate("""() => {
                     const img = document.querySelector('img.captcha-img');
@@ -306,13 +304,11 @@ async def run():
                     
                     c();
                 })""", txt)
-        
-                ms = int((time.perf_counter() - t) * 1000)
-                
+                        
                 if ok:
                     break
                 else:
-                    print(f"[{a}] ✗ Failed in {ms}ms, retrying...")
+                    print(f"[{a}] ✗ Failed , retrying...")
                     await asyncio.sleep(0.3)
                     
             else:
@@ -320,61 +316,86 @@ async def run():
         except Exception as e:
             print(f"Unexpected error: {type(e).__name__}: {e}")
 
-        # PHASE 5 : Payment Selection
+        # PHASE 5 : Payment Selection With Fallback
         try:
-            
-            # await page.evaluate("""() => {
-            #     return new Promise((resolve) => {
-            #         const startTime = Date.now();
-                    
-            #         function strike() {
-                        
-            #             const payBtn = document.querySelector('button.btn-primary');
-                                
-            #             if (payBtn && !payBtn.disabled) {
-            #                 payBtn.click();
-            #                 resolve("Click Successful");
-            #                 return; 
-            #             }
+        
+            result = await page.evaluate("""() => {
+                return new Promise((resolve, reject) => {
 
-            #             if (Date.now() - startTime > 25000) {
-            #                 resolve("UI Strike Timeout");
-            #                 return;
-            #             }
+                    const observer = new MutationObserver(() => {
 
-            #             // Request the next frame
-            #             requestAnimationFrame(strike);
-            #         }
+                        // STEP 1 : Activate Multiple Payment Service
+                        const multiplePaymentTab = Array.from(
+                            document.querySelectorAll('.bank-type')
+                        ).find(el =>
+                            el.innerText.includes('Multiple Payment Service')
+                        );
 
-            #         // Start the loop
-            #         strike();
-            #     });
-            # }""")
-            await page.evaluate("""() => {
-                return new Promise((resolve) => {
-                    const observer = new MutationObserver((mutations, obs) => {
-                        const upiTab = Array.from(document.querySelectorAll('.bank-type'))
-                                            .find(t => t.innerText.includes('BHIM/ UPI'));
-                        const paytm = Array.from(document.querySelectorAll('.bank-text'))
-                                           .find(o => o.innerText.includes('PAYTM'));
+                        if (
+                            multiplePaymentTab &&
+                            !multiplePaymentTab.classList.contains('bank-type-active')
+                        ) {
+                            multiplePaymentTab.click();
+                            return;
+                        }
+
+                        // STEP 2 : Search Gateway Options
+                        const allGateways = Array.from(
+                            document.querySelectorAll('.bank-text')
+                        );
+
+                        // PRIORITY 1 : PHONEPE
+                        let selectedGateway = allGateways.find(el =>
+                            el.innerText.includes('PhonePe')
+                        );
+
+                        let gatewayName = "PHONEPE";
+
+                        // FALLBACK : PAYTM
+                        if (!selectedGateway) {
+                            selectedGateway = allGateways.find(el =>
+                                el.innerText.includes('Paytm') ||
+                                el.innerText.includes('PAYTM')
+                            );
+
+                            gatewayName = "PAYTM";
+                        }
+
+                        // CLICK GATEWAY
+                        if (selectedGateway) {
+                            selectedGateway.click();
+                        }
+
+                        // STEP 3 : CONTINUE BUTTON
                         const payBtn = document.querySelector('button.btn-primary');
-            
-                        if (upiTab && !upiTab.classList.contains('active')) {
-                            upiTab.click();
+
+                        if (payBtn && selectedGateway) {
+
+                            if (!payBtn.disabled) {
+                                payBtn.click();
+
+                                observer.disconnect();
+                                resolve(gatewayName);
+                            }
                         }
-                        if (paytm) {
-                            paytm.click();
-                        }
-                        if (payBtn && paytm) { 
-                            payBtn.click();
-                            obs.disconnect();
-                            resolve("Success");
-                        }
+
                     });
-                    observer.observe(document.body, { childList: true, subtree: true });
+
+                    observer.observe(document.body, {
+                        childList: true,
+                        subtree: true
+                    });
+
+                    // SAFETY TIMEOUT
+                    setTimeout(() => {
+                        observer.disconnect();
+                        reject("No Gateway Found");
+                    }, 25000);
+
                 });
             }""")
-            
+
+            print(f"✅ Gateway Selected : {result}")
 
         except Exception as e:
             print(f'💥 Payment Phase Error: {e}')
