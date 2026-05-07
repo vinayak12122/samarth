@@ -318,106 +318,65 @@ async def run():
 
         # PHASE 5 : Payment Selection With Fallback
         try:
+        
             result = await page.evaluate("""() => {
                 return new Promise((resolve, reject) => {
 
-                    let gatewayClicked = false;
-                    let payClicked = false;
-
                     const observer = new MutationObserver(() => {
 
-                        // LEFT SIDE TABS
-                        const tabs = Array.from(
+                        // STEP 1 : Activate Multiple Payment Service
+                        const multiplePaymentTab = Array.from(
                             document.querySelectorAll('.bank-type')
-                        );
-
-                        // BHIM TAB
-                        const bhimTab = tabs.find(el =>
-                            el.innerText.includes('BHIM')
-                        );
-
-                        // MULTIPLE PAYMENT TAB
-                        const multiplePaymentTab = tabs.find(el =>
+                        ).find(el =>
                             el.innerText.includes('Multiple Payment Service')
                         );
 
-                        // =====================================================
-                        // STEP 1 : ENSURE BHIM TAB ACTIVE
-                        // =====================================================
-
                         if (
-                            bhimTab &&
-                            !bhimTab.classList.contains('bank-type-active')
+                            multiplePaymentTab &&
+                            !multiplePaymentTab.classList.contains('bank-type-active')
                         ) {
-                            bhimTab.click();
+                            multiplePaymentTab.click();
                             return;
                         }
 
-                        // CURRENT GATEWAYS
-                        let gateways = Array.from(
+                        // STEP 2 : Search Gateway Options
+                        const allGateways = Array.from(
                             document.querySelectorAll('.bank-text')
                         );
 
-                        // =====================================================
-                        // PRIORITY : PAYTM
-                        // =====================================================
-
-                        let selectedGateway = gateways.find(el =>
-                            el.innerText.includes('PAYTM')
+                        // PRIORITY 1 : PHONEPE
+                        let selectedGateway = allGateways.find(el =>
+                            el.innerText.includes('PhonePe')
                         );
 
-                        let gatewayName = "PAYTM";
+                        let gatewayName = "PHONEPE";
 
-                        // =====================================================
-                        // FALLBACK : PHONEPE
-                        // =====================================================
-
+                        // FALLBACK : PAYTM
                         if (!selectedGateway) {
-
-                            // SWITCH TAB
-                            if (
-                                multiplePaymentTab &&
-                                !multiplePaymentTab.classList.contains      ('bank-type-active')
-                            ) {
-                                multiplePaymentTab.click();
-                                return;
-                            }
-
-                            // RE-QUERY AFTER TAB SWITCH
-                            gateways = Array.from(
-                                document.querySelectorAll('.bank-text')
+                            selectedGateway = allGateways.find(el =>
+                                el.innerText.includes('Paytm') ||
+                                el.innerText.includes('PAYTM')
                             );
 
-                            selectedGateway = gateways.find(el =>
-                                el.innerText.includes('PhonePe')
-                            );
-
-                            gatewayName = "PHONEPE";
+                            gatewayName = "PAYTM";
                         }
 
-                        // CLICK GATEWAY ONLY ONCE
-                        if (selectedGateway && !gatewayClicked) {
+                        // CLICK GATEWAY
+                        if (selectedGateway) {
                             selectedGateway.click();
-                            gatewayClicked = true;
                         }
 
-                        // CONTINUE BUTTON
-                        const payBtn =
-                            document.querySelector('button.btn-primary');
+                        // STEP 3 : CONTINUE BUTTON
+                        const payBtn = document.querySelector('button.btn-primary');
 
-                        if (
-                            payBtn &&
-                            !payBtn.disabled &&
-                            gatewayClicked &&
-                            !payClicked
-                        ) {
+                        if (payBtn && selectedGateway) {
 
-                            payClicked = true;
+                            if (!payBtn.disabled) {
+                                payBtn.click();
 
-                            payBtn.click();
-
-                            observer.disconnect();
-                            resolve(gatewayName);
+                                observer.disconnect();
+                                resolve(gatewayName);
+                            }
                         }
 
                     });
@@ -427,14 +386,11 @@ async def run():
                         subtree: true
                     });
 
-                    // INITIAL TRIGGER
-                    document.body.dispatchEvent(new Event('input'));
-
-                    // TIMEOUT
+                    // SAFETY TIMEOUT
                     setTimeout(() => {
                         observer.disconnect();
-                        reject("Gateway Selection Timeout");
-                    }, 15000);
+                        reject("No Gateway Found");
+                    }, 25000);
 
                 });
             }""")
