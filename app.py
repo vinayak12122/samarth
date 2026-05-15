@@ -19,11 +19,11 @@ from datetime import datetime
 from solver import Solver
 
 CONFIG = {           
-    "TRAVEL_DATE": "09/05/2026", 
-    "TRAVEL_CLASS": "AC 3 Tier (3A)", 
+    "TRAVEL_DATE": "16/05/2026", 
+    "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
-    "TRAIN_NUMBER": "12904" ,
-    "STRIKE_TIME": "09:59:59"
+    "TRAIN_NUMBER": "22183" ,
+    "STRIKE_TIME": "10:59:59"
 
 }
 
