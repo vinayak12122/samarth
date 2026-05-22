@@ -23,7 +23,7 @@ CONFIG = {
     "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
     "TRAIN_NUMBER": "12904" ,
-    "STRIKE_TIME": "00:29:59"
+    "STRIKE_TIME": "10:59:59"
 
 }
 
@@ -130,7 +130,7 @@ async def run():
 
             await train_box.scroll_into_view_if_needed()
 
-            print("✅ Train Located")
+            print("Train Located")
 
         except Exception:
         
@@ -213,7 +213,7 @@ async def run():
 
         # PREWARM
 
-        print("🔥 Prewarming...")
+        print("Prewarming...")
 
         try:
         
@@ -221,7 +221,7 @@ async def run():
 
             await asyncio.sleep(0.8)
 
-            print("✅ Session Ready")
+            print("Session Ready")
 
         except Exception as e:
         
@@ -240,102 +240,54 @@ async def run():
 
         triggered = False
 
-        for attempt in range(10):
-        
+        for attempt in range(30):
             try:
-            
                 if request_running:
                     continue
-                
                 response_event.clear()
-
                 latest_status = None
-
                 request_running = True
-
                 print(f"Attempt {attempt + 1}")
-
                 await refresh_tab.click(timeout=500)
-
                 try:
-                
                     await asyncio.wait_for(
                         response_event.wait(),
                         timeout=0.9
                     )
-
                 except asyncio.TimeoutError:
-                
                     print("Timeout")
-
                     request_running = False
-
                     continue
 
                 if not latest_status:
-                
                     try:
-                    
                         live_text = await avail_slot.inner_text()
-
                         latest_status = live_text
-
                     except:
                         pass
-                    
-                    
+
                 print(f"Status: {latest_status}")
 
-
-                if latest_status and any(
-                    x in latest_status
-                    for x in [
-                        "AVAILABLE",
-                        "RAC",
-                        "CURR_AVBL",
-                        "WL"
-                    ]
-                ):
-
-                    print("Seat Found")
-
+                if (latest_status and "#" not in latest_status and any(x in latest_status for x in ["AVAILABLE","RAC","CURR_AVBL","WL"])):
                     await avail_slot.click(timeout=500)
-
                     await asyncio.sleep(0.015)
-
                     await book_btn.click(timeout=500)
-
                     triggered = True
-
-                    print("Booking Triggered")
-
                     break
                 await asyncio.sleep(0.04)
 
             except Exception as e:
-            
                 request_running = False
-
                 print(f"Attempt Error: {e}")
-
                 await asyncio.sleep(0.05)
 
         if not triggered:
-        
-            print("Fallback Trigger")
-
             try:
             
                 await avail_slot.click(timeout=700)
-
                 await asyncio.sleep(0.02)
-
                 await book_btn.click(timeout=700)
-
-                print("Fallback Executed")
-
             except Exception as e:
-            
                 print(f"Fallback Failed: {e}")
 
     
@@ -344,17 +296,15 @@ async def run():
             await page.evaluate("""() => {
                 return new Promise((resolve) => {
                     let initialClicked = false;
-                    let lastClickedToastElement = null; // Tracks the actual DOM element we already handled
+                    let lastClickedTime = 0;
 
                     const observer = new MutationObserver((mutations, obs) => {
-                        // If captcha page element appears, we are successfully out!
                         if (document.querySelector('app-captcha')) {
                             obs.disconnect();
                             resolve("Done");
                             return;
                         }
 
-                        // 1. Initial selection and single click on load
                         if (!initialClicked) {
                             const upiRow = Array.from(document.querySelectorAll('tr.link'))
                                                 .find(row => row.innerText.includes('BHIM/UPI'));
@@ -367,34 +317,30 @@ async def run():
                                 }
                                 continueBtn.click();
                                 initialClicked = true;
+                                lastClickedTime = Date.now();
                             }
                         }
 
-                        // 2. Tatkal Angular-Safe Error Catching & Re-clicking
-                        const currentToast = document.querySelector('.ui-toast-message-error');
-                        if (currentToast) {
-                            // Verify this is a BRAND NEW toast element instance in the DOM
-                            if (currentToast !== lastClickedToastElement) {
-                                const lowerText = (currentToast.innerText || "").toLowerCase();
+                        const toastDetail = document.querySelector('.ui-toast-detail');
+                        if (toastDetail) {
+                            const lowerText = (toastDetail.innerText || "").toLowerCase();
+                            
+                            if (lowerText.includes("load") || lowerText.includes("ip") || lowerText.includes("traffic") || lowerText.includes("busy") || lowerText.includes("inputs") ) {
+                                const continueBtn = document.querySelector('button[type="submit"].btnDefault');
+                                const now = Date.now();
                                 
-                                if (lowerText.includes("load") || lowerText.includes("ip") || lowerText.includes("inputs")) {
-                                    const continueBtn = document.querySelector('button[type="submit"].btnDefault');
-                                    if (continueBtn) {
-                                        continueBtn.click();
-                                        // Lock this specific element instance so we NEVER click it again
-                                        lastClickedToastElement = currentToast; 
-                                    }
+                                if (continueBtn && (now - lastClickedTime > 250)) {
+                                    continueBtn.click();
+                                    lastClickedTime = now;
                                 }
                             }
-                        } else {
-                            // Clear memory when all toasts disappear from screen
-                            lastClickedToastElement = null;
                         }
                     });
 
                     observer.observe(document.body, { childList: true, subtree: true });
                 });
             }""")
+            print("Passesed Passenger Room")
         except Exception as e:
             print(f'Speed selection failed: {e}')
         
