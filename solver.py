@@ -16,7 +16,7 @@ predictor = create_predictor(
     device='cpu'
 )
 
-img_path = 'captcha_13.png'
+img_path = 'E:/Coding Documents/samarth/data/captcha_13.png'
 dummy_img = cv2.imread(img_path)
 
 list(predictor(dummy_img))

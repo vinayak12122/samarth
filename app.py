@@ -19,11 +19,11 @@ from datetime import datetime
 from solver import Solver
 
 CONFIG = {           
-    "TRAVEL_DATE": "16/05/2026", 
-    "TRAVEL_CLASS": "Sleeper (SL)", 
+    "TRAVEL_DATE": "24/05/2026", 
+    "TRAVEL_CLASS": "AC 3 Tier (3A)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
-    "TRAIN_NUMBER": "22183" ,
-    "STRIKE_TIME": "10:59:59"
+    "TRAIN_NUMBER": "22359" ,
+    "STRIKE_TIME": "09:59:58"
 
 }
 
@@ -111,141 +111,301 @@ async def run():
         print(f"Found {len(trains)} trains:")
         for i, train in enumerate(trains, 1):
             print(f"  {i}. {train}")
+            
 
         # PHASE 2 - TRAIN SEARCH LOOP
         try:
-            train_heading_xpath = f"//div[contains(@class,'train-heading')]//strong[contains(text(), '{CONFIG['TRAIN_NUMBER']}')]"
-            
-            await page.wait_for_selector(train_heading_xpath,timeout=15000)
-
-
-            train_box = page.locator("div.bull-back").filter(
-                has=page.locator(f"strong:has-text('({CONFIG['TRAIN_NUMBER']})')")
+            await page.wait_for_selector(
+                f"//strong[contains(text(), '{CONFIG['TRAIN_NUMBER']}')]",
+                timeout=15000
             )
-            
+
+            train_box = page.locator(
+                "div.bull-back"
+            ).filter(
+                has=page.locator(
+                    f"strong:has-text('{CONFIG['TRAIN_NUMBER']}')"
+                )
+            ).first
+
             await train_box.scroll_into_view_if_needed()
-            print("Train Located...")
-            
-        except Exception as e:
-            print("Train not found")
-            try:
-                train_box = page.locator("div.tou-mod").filter(has=page.locator(f"strong:has-text('{CONFIG['TRAIN_NUMBER']}')"))
-                await train_box.scroll_into_view_if_needed()
-            except:
-                return    
-    
-        date_obj = datetime.strptime(CONFIG["TRAVEL_DATE"], "%d/%m/%Y")
+
+            print("Train Located")
+
+        except Exception:
+        
+            print("❌ Train not found")
+
+            return
+
+        date_obj = datetime.strptime(
+            CONFIG["TRAVEL_DATE"],
+            "%d/%m/%Y"
+        )
+
         day_date_str = date_obj.strftime("%d %b")
-        
-        refresh_tab = train_box.locator("div.pre-avl, li.ui-tabmenuitem").filter(
-            has_text=CONFIG['TRAVEL_CLASS']
+
+        refresh_tab = train_box.locator(
+            "div.pre-avl, li.ui-tabmenuitem"
+        ).filter(
+            has_text=CONFIG["TRAVEL_CLASS"]
         ).first
+
+
+        avail_slot = train_box.locator(
+            "div.pre-avl"
+        ).filter(
+            has_text=day_date_str
+        ).first
+
+
+        book_btn = train_box.locator(
+            "button:has-text('Book Now')"
+        ).first
+
+        latest_status = None
+
+        response_event = asyncio.Event()
+
+        request_running = False
+
+        # RESPONSE LISTENER
+
+        async def handle_response(response):
         
-        avail_slot = train_box.locator("div.pre-avl").filter(has_text=day_date_str).first
-        book_btn = train_box.locator("button:has-text('Book Now')")
+            nonlocal latest_status
+            nonlocal request_running
 
-        success_flag = asyncio.Event()
-
-        async def on_response(response):
-            url = response.url.lower()
-            if "avlfarenquiry" in url and not success_flag.is_set():
-                try:
-                    data = await response.json()
-                    day_list = data.get("avlDayList", [])
-                    
-                    if day_list:
-                        status = day_list[0].get("availablityStatus", "")
-                        # print(f"📡 [NETWORK] Status: {status}")
-
-                        if any(x in status for x in ["AVAILABLE", "RAC", "CURR_AVBL", "WL"]) and "#" not in status:
-                            
-                            await avail_slot.dispatch_event("click")
-                            await book_btn.dispatch_event("click")
-                            success_flag.set()
-                        else:
-                            print(f"❌ No seats: {status}")
-                except Exception as e:
-                   
-                    pass
-
-        browser_context.on("response",on_response)
-        
-        print("Strike Startted...") 
-        while time.time() < (strike_ts - 0.5) :
-            await asyncio.sleep(0.01)
-
-        try:
-            triggered = False
-            for attempt in range(20):
-                if success_flag.is_set():
-                    triggered = True
-                    break
-
-                
-                print(f'Attempt: {attempt+1}')
-
-                await refresh_tab.click(force=True,timeout=0)
-    
-                try:
-                    await asyncio.wait_for(success_flag.wait(),timeout=0.6)
-                    triggered = True
-                    break
-                except asyncio.TimeoutError:
-                    continue
-                                        
-            if not triggered:
-                await avail_slot.click(force=True)
-                await asyncio.sleep(0.1)
-                await book_btn.click(force=True)
-
-        except Exception as e:
-            print(f"❌ Error during strike: {e}")
-        finally:
             try:
-                browser_context.remove_listener("response", on_response)
-            except:
-                pass
+            
+                if "avlfarenquiry" not in response.url.lower():
+                    return
+
+                if response.status in [401, 403, 429]:
+                
+                    print(f"🚫 Blocked: {response.status}")
+
+                    request_running = False
+
+                    return
+
+                data = await response.json()
+
+                day_list = data.get("avlDayList", [])
+
+                if day_list:
+                
+                    latest_status = day_list[0].get(
+                        "availablityStatus",
+                        ""
+                    )
+
+                    response_event.set()
+
+                request_running = False
+
+            except Exception:
+            
+                request_running = False
+
+
+        page.on("response", handle_response)
+
+        # PREWARM
+
+        print("Prewarming...")
+
+        try:
+        
+            await refresh_tab.click(timeout=700)
+
+            await asyncio.sleep(0.8)
+
+            print("Session Ready")
+
+        except Exception as e:
+        
+            print(f"Prewarm failed: {e}")
+
+
+        # STRIKE TIME
+
+        print(f"Waiting: {CONFIG['STRIKE_TIME']}")
+
+        while time.time() < (strike_ts - 0.5):
+        
+            await asyncio.sleep(0.001)
+
+        print("🚀 Strike Started")
+
+        triggered = False
+
+        for attempt in range(30):
+            try:
+                if request_running:
+                    continue
+                response_event.clear()
+                latest_status = None
+                request_running = True
+                print(f"Attempt {attempt + 1}")
+                await refresh_tab.click(timeout=500)
+                try:
+                    await asyncio.wait_for(
+                        response_event.wait(),
+                        timeout=0.9
+                    )
+                except asyncio.TimeoutError:
+                    print("Timeout")
+                    request_running = False
+                    continue
+
+                if not latest_status:
+                    try:
+                        live_text = await avail_slot.inner_text()
+                        latest_status = live_text
+                    except:
+                        pass
+
+                print(f"Status: {latest_status}")
+
+                if (latest_status and "#" not in latest_status and any(x in latest_status for x in ["AVAILABLE","RAC","CURR_AVBL","WL"])):
+                    await avail_slot.click(timeout=500)
+                    await asyncio.sleep(0.015)
+                    await book_btn.click(timeout=500)
+                    triggered = True
+                    break
+                await asyncio.sleep(0.04)
+
+            except Exception as e:
+                request_running = False
+                print(f"Attempt Error: {e}")
+                await asyncio.sleep(0.05)
+
+        if not triggered:
+            try:
+            
+                await avail_slot.click(timeout=700)
+                await asyncio.sleep(0.02)
+                await book_btn.click(timeout=700)
+            except Exception as e:
+                print(f"Fallback Failed: {e}")
 
     
-        # PHASE 3 - PASSENGER ROOM
-        try:
-            await page.evaluate("""() => {
-                return new Promise((resolve) => {
-                    const observer = new MutationObserver((mutations, obs) => {
-                        const upiRow = Array.from(document.querySelectorAll('tr.link'))
-                                            .find(row => row.innerText.includes('BHIM/UPI'));
-                        const continueBtn = document.querySelector('button[type="submit"].btnDefault');
-        
-                        if (upiRow) {
-                            const radio = upiRow.querySelector('.ui-radiobutton-box');
-                            if (radio && !radio.classList.contains('ui-state-active')) {
-                                radio.click();
+            # PHASE 3 - PASSENGER ROOM
+            try:
+                await page.evaluate("""() => {
+                    return new Promise((resolve) => {
+
+                        let initialClickDone = false;
+
+                        // stores every toast already handled
+                        const handledToasts = new Set();
+
+                        function clickContinue() {
+
+                            const continueBtn = document.querySelector(
+                                'button[type="submit"].btnDefault'
+                            );
+
+                            if (
+                                continueBtn &&
+                                !continueBtn.disabled &&
+                                continueBtn.offsetParent !== null
+                            ) {
+                                continueBtn.click();
+                                return true;
                             }
+
+                            return false;
                         }
-        
-                        if (continueBtn) {
-                            continueBtn.click();
-                            obs.disconnect();
-                            resolve("Done");
-                        }
+
+                        const observer = new MutationObserver((mutations, obs) => {
+
+                            // CAPTCHA FOUND
+                            if (document.querySelector('app-captcha')) {
+                                obs.disconnect();
+                                resolve("Done");
+                                return;
+                            }
+
+                            // =====================================
+                            // INITIAL SINGLE CLICK
+                            // =====================================
+                            if (!initialClickDone) {
+
+                                const upiRow = Array.from(
+                                    document.querySelectorAll('tr.link')
+                                ).find(row =>
+                                    row.innerText.includes('BHIM/UPI')
+                                );
+
+                                if (!upiRow) return;
+
+                                const radio = upiRow.querySelector(
+                                    '.ui-radiobutton-box'
+                                );
+
+                                if (
+                                    radio &&
+                                    !radio.classList.contains('ui-state-active')
+                                ) {
+                                    radio.click();
+                                }
+
+                                const clicked = clickContinue();
+
+                                if (clicked) {
+                                    initialClickDone = true;
+                                }
+
+                                return;
+                            }
+
+                            // =====================================
+                            // TOAST DETECTION
+                            // =====================================
+                            const toastDetail = document.querySelector(
+                                '.ui-toast-detail'
+                            );
+
+                            if (!toastDetail) return;
+
+                            const toastText = (
+                                toastDetail.textContent || ""
+                            ).trim().toLowerCase();
+
+                            if (!toastText) return;
+
+                            const shouldRetry =
+                                toastText.includes("high load") ||
+                                toastText.includes("retry") ||
+                                toastText.includes("traffic") ||
+                                toastText.includes("busy") ||
+                                toastText.includes("ip");
+
+                            if (!shouldRetry) return;
+
+                            // already handled this exact toast
+                            if (handledToasts.has(toastText)) {
+                                return;
+                            }
+
+                            handledToasts.add(toastText);
+
+                            clickContinue();
+                        });
+
+                        observer.observe(document.body, {
+                            childList: true,
+                            subtree: true
+                        });
                     });
-                    observer.observe(document.body, { childList: true, subtree: true });
-                });
-            }""")
+                }""")
 
-            # await page.locator("tr.link:has-text('BHIM/UPI') .ui-radiobutton-box").first.click(delay=random.randint(8, 15),timeout=0)
-            
-            # await asyncio.sleep(random.uniform(0.06, 0.11))
+                print("Passed Passenger Room")
 
-            
-            # await page.locator("button[type='submit'].btnDefault").first.click(delay=random.randint(6, 12),timeout=3000)
-        except Exception as e:
-            print(f'Speed selection failed: {e}')
-
-        try:
-            dummy = "data:image/jpg;base64,iVBORw0KGgoAAAANSUhEUgAAAMsAAAAyCAYAAADyZi/iAAAElUlEQVR42u2dTUhUURTHRSRciCAiMogEEtIiQnApEUGEiAsRQkIiJIgIGVy0kZAWbUQkWgnRKkQGREQkRBCRkIg2Ii0igoiQFiGEDCGDDEzn1hFfhzPjzH33zfv6/+Fs3rx7z7v3vp/3vnM/bGiAIAiCIAiCIAiCIAiCIAiCIKicSkIhP0uG7AHZEtke2W+yAtkJ2THZV7IVsmmyPse+G8nuki2TfWd/xajUTapeLLo9J5KbxuixeIZLnNarpTjDQm6vkK3Kl7MKfSKbJLvg0/9lss/nOQMB9YOlneynyGLX4hl2RR4mz/a4wkIuZy0gkTI9wYil/xZOX3INS6phc1B5t5U2mKwhfVZJPxrHYRi5aibbLPPiG4CGydrM8MgzTOolGyN7rfSuJcvneCKy+UZ2029vBVjcNM6yyCZP1l1Fuh4ew3u1EtcGJVfrSj1kT+GoskeY5nR+2mNHPMeNJH4PxhWWDrJDkdVWFem2RJpfZJ1xbFBy81gZSvZZ5pU5rRvL9PIPUCNgiVDhKem4MvyYqHD/Q+X+8Tg2qOlFOcJ1KvO9MuAg3znLdIFFvACLo8IrwxDTU2TKvFx5ce96XBuUXDwXLl8kpU0BS3CwZBiQihAow68jDap6lYlueVomWJStIm2TAN/8Ve8Kux1dRsJsw3mA5fz8JpR6u+P5/V4tw7Wgy0Q/LyjPYyYMx6r0NSzSbkShHQFLTLpspec45DkZrefZDKNM3COsKG2cryV6RPfOi/RTgAWw1PrBK79JcmVCq131LhOHaLeV9jURrP4afa2JPIaS2Kb4Zgmw8Lwe6jw9qneZOMy9V2bi8KKFLzlT3glYAItN3tsVQNmpd5kMDDybLbVvILL0dRzUnAZgSRcs2gx9ia/11LNMZoJQWcdm9JasNYz6C2rsD1hiCAvnn7UJyTr+2L3G4WmpVQerewELYIlvBSvvW0G59tKRL+thGGABLFGERWrGoS/5gd8Rdn0BFsDiCpYvJnTs0Neq69AxYAEsUepZTJSu2ZGvOdeTkoAFsIQJy45yzWzSanLga9D1chfAAljChKVF2br898X2CwzvdjwSCym7AQtgiSUsfM0A814LHzvwN+9yiT5gASyhwsLXzf73DwowOZ/+Msrk60BCYTkBLCmAxQPMvgLMok+fk34XZcYEFrlAthmwJBQW/r2Dz+eSeuXTb05Z1jNV40TlYMRh2RDZjwCWBMPiAUY7hG7Bh98mZRuC0QGHmIflpCX3dEN8fNHHGMzgy12l5kTNW1FYQApYAvTH3xraYXTzPv3PODhkr8TwXI8YLJkyi2NTt/mrmCZYPI1/oLT1M5/PYA7PW7SApsg7TYeiWt/cQ+ZTBQvPEfx3VnHaYOH7zc7OH0GsIeNh1jiD845fsqJngaeZo3ljFnbyyZRtMRktdPJZaWu8bbyQdFhaZQSnAYKgst2pV2uoFQjSYZl1OU6HoKSC0q0cS9SPmoGgM0jM/MJ95YN2F7UDQf8gKVSI8pkephe1BEGVYTHLPq6ihiDoDJY8A3PMgJh/CDqaimUKEARBEARBEARBEARBULL0B6XRGwUEbDkEAAAAAElFTkSuQmCC"
-            await asyncio.to_thread(Solver, dummy)
-        except: pass
+            except Exception as e:
+                print(f'Passenger room failed: {e}')
         
         # PHASE 4 - CAPTCHA PAGE 
         MAX_ATTEMPTS = 3
@@ -439,10 +599,10 @@ async def run():
                 });
             }""")
 
-            print(f"✅ Gateway Selected : {result}")
+            print(f"Gateway Selected : {result}")
 
         except Exception as e:
-            print(f'💥 Payment Phase Error: {e}')
+            print(f'Payment Phase Error: {e}')
 
         # PHASE 6 : Initiating QR Generation
         # try:
