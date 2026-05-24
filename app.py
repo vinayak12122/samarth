@@ -23,8 +23,7 @@ CONFIG = {
     "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
     "TRAIN_NUMBER": "12904" ,
-    "STRIKE_TIME": "10:59:58"
-
+    "STRIKE_TIME": "09:59:58"
 }
 
 def get_target_timestamp(target_str):
@@ -162,10 +161,11 @@ async def run():
             attempt += 1
              
             try:
+                print(f'Attempt: {attempt}')
                 if await refresh_tab.count() > 0:
                     await refresh_tab.click(force=True, no_wait_after=True)
                  
-                await asyncio.sleep(0.10)
+                await asyncio.sleep(0.20)
                  
                 status = await avail_slot.evaluate("el => el?.innerText || ''")
                 status = status.replace('\n', ' ').strip()
@@ -173,7 +173,7 @@ async def run():
                 if '#' in status:
                     continue
                  
-                if 'AVAILABLE' in status or 'WL' in status or 'RAC' in status:
+                if ('AVAILABLE' in status or 'WL' in status or 'RAC' in status ):
                      
                     await avail_slot.click(force=True)
                      
@@ -194,113 +194,126 @@ async def run():
         try:
             await page.evaluate("""() => {
                 return new Promise((resolve) => {
-                                
-                    const initialObserver = new MutationObserver((mutations, obs) => {
 
+                    let started = false;
+                    let retrying = false;
+
+                    const observer = new MutationObserver(() => {
+
+                        // =====================================
+                        // SUCCESS CONDITION
+                        // =====================================
+                        if (document.querySelector('app-captcha')) {
+                            observer.disconnect();
+                            resolve("Done");
+                            return;
+                        }
+
+                        // =====================================
+                        // EXACT LOADER DETECTION (SHIELD)
+                        // =====================================
+                        // Instantly checks for IRCTC's blocking overlay DOM node
+                        const loaderActive = !!document.querySelector('.my-loading');
+
+                        if (loaderActive) {
+                            // IRCTC is processing network frames. Freeze interactions safely.
+                            return;
+                        }
+
+                        // =====================================
+                        // UI ELEMENT RESOLUTION
+                        // =====================================
                         const upiRow = Array.from(
                             document.querySelectorAll('tr.link')
-                        ).find(row =>
-                            row.innerText.includes('BHIM/UPI')
-                        );
+                        ).find(el => el.innerText.includes('BHIM/UPI'));
 
-                        const continueBtn = document.querySelector(
-                            'button[type="submit"].btnDefault'
-                        );
+                        const continueBtn = Array.from(
+                            document.querySelectorAll('button.btnDefault')
+                        ).find(el => el.innerText.trim() === 'Continue');
 
-                        if (upiRow) {
+                        if (!upiRow || !continueBtn) {
+                            return;
+                        }
 
-                            const radio = upiRow.querySelector(
-                                '.ui-radiobutton-box'
-                            );
+                        // =====================================
+                        // INITIAL ACTIONS
+                        // =====================================
+                        if (!started) {
+                            const radio = upiRow.querySelector('.ui-radiobutton-box');
 
-                            if (
-                                radio &&
-                                !radio.classList.contains('ui-state-active')
-                            ) {
+                            if (radio && !radio.classList.contains('ui-state-active')) {
                                 radio.click();
                             }
-                        }
-
-                        if (continueBtn) {
 
                             continueBtn.click();
-
-                            // stop initial observer
-                            obs.disconnect();
-                                
-                                let lastRetryTime = 0;
-
-                            const retryObserver = new MutationObserver(
-                                (retryMutations, retryObs) => {
-
-                                // captcha page reached
-                                if (document.querySelector('app-captcha')) {
-
-                                    retryObs.disconnect();
-
-                                    resolve("Done");
-
-                                    return;
-                                }
-
-                                for (const mutation of retryMutations) {
-
-                                    for (const node of mutation.addedNodes) {
-
-                                        if (!(node instanceof HTMLElement)) {
-                                            continue;
-                                        }
-
-                                        const toastDetail =
-    node.matches?.('.ui-toast-detail')
-        ? node
-        : node.querySelector?.('.ui-toast-detail');
-
-if (!toastDetail) {
-    continue;
-}
-
-                                        const lowerText = (
-                                            toastDetail.innerText || ""
-                                        ).toLowerCase();
-
-                                        if (
-                                            lowerText.includes("load") ||
-                                            lowerText.includes("ip")) {
-
-                                            const retryBtn = document.querySelector(
-                                                'button[type="submit"].btnDefault'
-                                            );
-
-                                            if (
-                                                retryBtn &&
-                                                !retryBtn.disabled &&
-                                                retryBtn.offsetParent !== null
-                                            ) {
-                                                const now = Date.now();
-
-if (now - lastRetryTime > 1000) {
-
-    retryBtn.click();
-
-    lastRetryTime = now;
-}
-                                            }
-                                        }
-                                    }
-                                }
-                            });
-
-                            retryObserver.observe(document.body, {
-                                childList: true,
-                                subtree: true
-                            });
+                            started = true;
+                            return;
                         }
+
+                        // PREVENT MULTIPLE PARALLEL RETRIES
+                        if (retrying) {
+                            return;
+                        }
+
+                        // =====================================
+                        // TOAST READS
+                        // =====================================
+                        const toastItems = document.querySelectorAll('p-toastitem');
+                        let retryNeeded = false;
+
+                        toastItems.forEach(toast => {
+                            const text = (toast.innerText || "").toLowerCase();
+
+                            if (
+                                text.includes("high load") ||
+                                text.includes("please retry") ||
+                                text.includes("ip") ||
+                                text.includes("inputs")
+                            ) {
+                                retryNeeded = true;
+                            }
+                        });
+
+                        if (!retryNeeded) {
+                            return;
+                        }
+
+                        retrying = true;
+
+                        // Execution recovery block
+                        setTimeout(() => {
+                            if (document.querySelector('app-captcha')) {
+                                retrying = false;
+                                return;
+                            }
+
+                            // Pre-click fallback verification check
+                            if (document.querySelector('.my-loading')) {
+                                retrying = false;
+                                return;
+                            }
+
+                            const freshBtn = Array.from(
+                                document.querySelectorAll('button.btnDefault')
+                            ).find(el => el.innerText.trim() === 'Continue');
+
+                            if (
+                                freshBtn &&
+                                !freshBtn.disabled &&
+                                freshBtn.offsetParent !== null
+                            ) {
+                                freshBtn.click();
+                            }
+
+                            retrying = false;
+
+                        }, 1800);
                     });
 
-                    initialObserver.observe(document.body, {
+                    observer.observe(document.body, {
                         childList: true,
-                        subtree: true
+                        subtree: true,
+                        characterData: true
                     });
                 });
             }""")
