@@ -184,7 +184,6 @@ async def run():
         while time.time() < strike_ts:
             await asyncio.sleep(0.1)
 
-        print("STRIKE STARTED") 
         attempt = 0
         MAX_ATTEMPTS = 10000
 
@@ -204,7 +203,7 @@ async def run():
                     await avail_slot.inner_text()
                 ).replace("\n", " ").strip()
 
-                print(status)
+                # print(status)
                 if "#" in status:
                     await asyncio.sleep(0.02)
                     continue
@@ -212,8 +211,6 @@ async def run():
                 await avail_slot.click()
                 await asyncio.sleep(0.08)
                 await book_btn.click()
-
-                print("BOOK NOW CLICKED")
 
                 break
             
