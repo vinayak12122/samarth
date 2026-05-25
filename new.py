@@ -19,12 +19,11 @@ from datetime import datetime
 from solver import Solver
 
 CONFIG = {           
-    "TRAVEL_DATE": "23/05/2026", 
+    "TRAVEL_DATE": "26/05/2026", 
     "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
-    "TRAIN_NUMBER": "12904" ,
-    "STRIKE_TIME": "10:59:59"
-
+    "TRAIN_NUMBER": "12168" ,
+    "STRIKE_TIME": "10:59:58"
 }
 
 def get_target_timestamp(target_str):
@@ -115,234 +114,216 @@ async def run():
 
         # PHASE 2 - TRAIN SEARCH LOOP
         try:
-            await page.wait_for_selector(
-                f"//strong[contains(text(), '{CONFIG['TRAIN_NUMBER']}')]",
-                timeout=15000
+            train_heading_xpath = f"//div[contains(@class,'train-heading')]//strong[contains(text(), '{CONFIG['TRAIN_NUMBER']}')]"
+            
+            await page.wait_for_selector(train_heading_xpath,timeout=15000)
+
+
+            train_box = page.locator("div.bull-back").filter(
+                has=page.locator(f"strong:has-text('({CONFIG['TRAIN_NUMBER']})')")
             )
-
-            train_box = page.locator(
-                "div.bull-back"
-            ).filter(
-                has=page.locator(
-                    f"strong:has-text('{CONFIG['TRAIN_NUMBER']}')"
-                )
-            ).first
-
+            
             await train_box.scroll_into_view_if_needed()
-
-            print("Train Located")
-
-        except Exception:
-        
-            print("❌ Train not found")
-
-            return
-
-        date_obj = datetime.strptime(
-            CONFIG["TRAVEL_DATE"],
-            "%d/%m/%Y"
-        )
-
-        day_date_str = date_obj.strftime("%d %b")
-
-        refresh_tab = train_box.locator(
-            "div.pre-avl, li.ui-tabmenuitem"
-        ).filter(
-            has_text=CONFIG["TRAVEL_CLASS"]
-        ).first
-
-
-        avail_slot = train_box.locator(
-            "div.pre-avl"
-        ).filter(
-            has_text=day_date_str
-        ).first
-
-
-        book_btn = train_box.locator(
-            "button:has-text('Book Now')"
-        ).first
-
-        latest_status = None
-
-        response_event = asyncio.Event()
-
-        request_running = False
-
-        # RESPONSE LISTENER
-
-        async def handle_response(response):
-        
-            nonlocal latest_status
-            nonlocal request_running
-
-            try:
+            print("Train Located...")
             
-                if "avlfarenquiry" not in response.url.lower():
-                    return
-
-                if response.status in [401, 403, 429]:
-                
-                    print(f"🚫 Blocked: {response.status}")
-
-                    request_running = False
-
-                    return
-
-                data = await response.json()
-
-                day_list = data.get("avlDayList", [])
-
-                if day_list:
-                
-                    latest_status = day_list[0].get(
-                        "availablityStatus",
-                        ""
-                    )
-
-                    response_event.set()
-
-                request_running = False
-
-            except Exception:
-            
-                request_running = False
-
-
-        page.on("response", handle_response)
-
-        # PREWARM
-
-        print("Prewarming...")
-
-        try:
-        
-            await refresh_tab.click(timeout=700)
-
-            await asyncio.sleep(0.8)
-
-            print("Session Ready")
-
         except Exception as e:
-        
-            print(f"Prewarm failed: {e}")
-
-
-        # STRIKE TIME
-
-        print(f"Waiting: {CONFIG['STRIKE_TIME']}")
-
-        while time.time() < (strike_ts - 0.12):
-        
-            await asyncio.sleep(0.001)
-
-        print("🚀 Strike Started")
-
-        triggered = False
-
-        for attempt in range(30):
+            print("Train not found")
             try:
-                if request_running:
-                    continue
-                response_event.clear()
-                latest_status = None
-                request_running = True
-                print(f"Attempt {attempt + 1}")
-                await refresh_tab.click(timeout=500)
-                try:
-                    await asyncio.wait_for(
-                        response_event.wait(),
-                        timeout=0.9
-                    )
-                except asyncio.TimeoutError:
-                    print("Timeout")
-                    request_running = False
-                    continue
-
-                if not latest_status:
-                    try:
-                        live_text = await avail_slot.inner_text()
-                        latest_status = live_text
-                    except:
-                        pass
-
-                print(f"Status: {latest_status}")
-
-                if (latest_status and "#" not in latest_status and any(x in latest_status for x in ["AVAILABLE","RAC","CURR_AVBL","WL"])):
-                    await avail_slot.click(timeout=500)
-                    await asyncio.sleep(0.015)
-                    await book_btn.click(timeout=500)
-                    triggered = True
-                    break
-                await asyncio.sleep(0.04)
-
-            except Exception as e:
-                request_running = False
-                print(f"Attempt Error: {e}")
-                await asyncio.sleep(0.05)
-
-        if not triggered:
-            try:
+                train_box = page.locator("div.tou-mod").filter(has=page.locator(f"strong:has-text('{CONFIG['TRAIN_NUMBER']}')"))
+                await train_box.scroll_into_view_if_needed()
+            except:
+                return    
+    
+        date_obj = datetime.strptime(CONFIG["TRAVEL_DATE"], "%d/%m/%Y")
+        day_date_str = date_obj.strftime("%d %b")
+    
+        while time.time() < strike_ts:
+            await asyncio.sleep(0.1)
             
-                await avail_slot.click(timeout=700)
-                await asyncio.sleep(0.02)
-                await book_btn.click(timeout=700)
-            except Exception as e:
-                print(f"Fallback Failed: {e}")
+        print("Strike Startted...")   
+        await page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            delete navigator.__proto__.webdriver;
+            window.chrome = {runtime: {}, loadTimes: () => {}, csi: () => {}};
+        """)
+        
+        attempt = 0
+        MAX_ATTEMPTS = 1000
+        
+        refresh_tab = train_box.locator("div.pre-avl, li.ui-tabmenuitem").filter(
+            has_text=CONFIG['TRAVEL_CLASS']
+        ).first
+        
+        avail_slot = train_box.locator("div.pre-avl").filter(has_text=day_date_str).first
+        book_btn = train_box.locator("button:has-text('Book Now')")
 
+        start = time.time()
+        
+        while attempt < MAX_ATTEMPTS:
+            attempt += 1
+            
+            try:
+                print(f'Attempt : {attempt}')
+                if await refresh_tab.count() > 0:
+                    await refresh_tab.click(force=True, no_wait_after=True)
+                
+                await asyncio.sleep(0.10)
+                
+                status = await avail_slot.evaluate("el => el?.innerText || ''")
+                status = status.replace('\n', ' ').strip()
+                
+                if '#' in status:
+                    continue
+                
+                if 'AVAILABLE' in status or 'WL' in status or 'RAC' in status:
+                    
+                    await avail_slot.click(force=True)
+                    
+                    await asyncio.sleep(0.10)
+                    
+                    await book_btn.click(force=True)
+                    print(time.time() - start)
+                    break
+                    
+            except Exception as e:
+                await asyncio.sleep(0.05)
+                continue
+        
+        else:
+            print(f"✗ Failed after {MAX_ATTEMPTS} attempts")
     
         # PHASE 3 - PASSENGER ROOM
         try:
             await page.evaluate("""() => {
                 return new Promise((resolve) => {
-                    let initialClicked = false;
-                    let lastClickedTime = 0;
 
-                    const observer = new MutationObserver((mutations, obs) => {
+                    let started = false;
+                    let retrying = false;
+
+                    const observer = new MutationObserver(() => {
+
+                        // =====================================
+                        // SUCCESS CONDITION
+                        // =====================================
                         if (document.querySelector('app-captcha')) {
-                            obs.disconnect();
+                            observer.disconnect();
                             resolve("Done");
                             return;
                         }
 
-                        if (!initialClicked) {
-                            const upiRow = Array.from(document.querySelectorAll('tr.link'))
-                                                .find(row => row.innerText.includes('BHIM/UPI'));
-                            const continueBtn = document.querySelector('button[type="submit"].btnDefault');
+                        // =====================================
+                        // EXACT LOADER DETECTION (SHIELD)
+                        // =====================================
+                        // Instantly checks for IRCTC's blocking overlay DOM node
+                        const loaderActive = !!document.querySelector('.my-loading');
 
-                            if (upiRow && continueBtn) {
-                                const radio = upiRow.querySelector('.ui-radiobutton-box');
-                                if (radio && !radio.classList.contains('ui-state-active')) {
-                                    radio.click();
-                                }
-                                continueBtn.click();
-                                initialClicked = true;
-                                lastClickedTime = Date.now();
-                            }
+                        if (loaderActive) {
+                            // IRCTC is processing network frames. Freeze interactions safely.
+                            return;
                         }
 
-                        const toastDetail = document.querySelector('.ui-toast-detail');
-                        if (toastDetail) {
-                            const lowerText = (toastDetail.innerText || "").toLowerCase();
-                            
-                            if (lowerText.includes("load") || lowerText.includes("ip") || lowerText.includes("traffic") || lowerText.includes("busy") || lowerText.includes("inputs") ) {
-                                const continueBtn = document.querySelector('button[type="submit"].btnDefault');
-                                const now = Date.now();
-                                
-                                if (continueBtn && (now - lastClickedTime > 250)) {
-                                    continueBtn.click();
-                                    lastClickedTime = now;
-                                }
-                            }
+                        // =====================================
+                        // UI ELEMENT RESOLUTION
+                        // =====================================
+                        const upiRow = Array.from(
+                            document.querySelectorAll('tr.link')
+                        ).find(el => el.innerText.includes('BHIM/UPI'));
+
+                        const continueBtn = Array.from(
+                            document.querySelectorAll('button.btnDefault')
+                        ).find(el => el.innerText.trim() === 'Continue');
+
+                        if (!upiRow || !continueBtn) {
+                            return;
                         }
+
+                        // =====================================
+                        // INITIAL ACTIONS
+                        // =====================================
+                        if (!started) {
+                            const radio = upiRow.querySelector('.ui-radiobutton-box');
+
+                            if (radio && !radio.classList.contains('ui-state-active')) {
+                                radio.click();
+                            }
+
+                            continueBtn.click();
+                            started = true;
+                            return;
+                        }
+
+                        // PREVENT MULTIPLE PARALLEL RETRIES
+                        if (retrying) {
+                            return;
+                        }
+
+                        // =====================================
+                        // TOAST READS
+                        // =====================================
+                        const toastItems = document.querySelectorAll('p-toastitem');
+                        let retryNeeded = false;
+
+                        toastItems.forEach(toast => {
+                            const text = (toast.innerText || "").toLowerCase();
+
+                            if (
+                                text.includes("high load") ||
+                                text.includes("please retry") ||
+                                text.includes("ip") ||
+                                text.includes("inputs")
+                            ) {
+                                retryNeeded = true;
+                            }
+                        });
+
+                        if (!retryNeeded) {
+                            return;
+                        }
+
+                        retrying = true;
+
+                        // Execution recovery block
+                        setTimeout(() => {
+                            if (document.querySelector('app-captcha')) {
+                                retrying = false;
+                                return;
+                            }
+
+                            // Pre-click fallback verification check
+                            if (document.querySelector('.my-loading')) {
+                                retrying = false;
+                                return;
+                            }
+
+                            const freshBtn = Array.from(
+                                document.querySelectorAll('button.btnDefault')
+                            ).find(el => el.innerText.trim() === 'Continue');
+
+                            if (
+                                freshBtn &&
+                                !freshBtn.disabled &&
+                                freshBtn.offsetParent !== null
+                            ) {
+                                freshBtn.click();
+                            }
+
+                            retrying = false;
+
+                        }, 400);
                     });
 
-                    observer.observe(document.body, { childList: true, subtree: true });
+                    observer.observe(document.body, {
+                        childList: true,
+                        subtree: true,
+                        characterData: true
+                    });
                 });
             }""")
-            print("Passesed Passenger Room")
+
+            print("Passed Passenger Room")
+
         except Exception as e:
-            print(f'Speed selection failed: {e}')
+            print(f'Passenger room failed: {e}')
         
         # PHASE 4 - CAPTCHA PAGE 
         MAX_ATTEMPTS = 3

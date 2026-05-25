@@ -19,11 +19,11 @@ from datetime import datetime
 from solver import Solver
 
 CONFIG = {           
-    "TRAVEL_DATE": "25/05/2026", 
+    "TRAVEL_DATE": "27/05/2026", 
     "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
     "TRAIN_NUMBER": "12904" ,
-    "STRIKE_TIME": "09:59:58"
+    "STRIKE_TIME": "14:04:58"
 }
 
 def get_target_timestamp(target_str):
@@ -137,56 +137,91 @@ async def run():
         date_obj = datetime.strptime(CONFIG["TRAVEL_DATE"], "%d/%m/%Y")
         day_date_str = date_obj.strftime("%d %b")
     
+        # =========================================================
+        # PRE STRIKE
+        # =========================================================
+        try:
+        
+            refresh_btn = train_box.locator(
+                "div.pre-avl"
+            ).filter(
+                has_text=CONFIG["TRAVEL_CLASS"]
+            ).locator(
+                "text=Refresh"
+            ).first
+
+            await refresh_btn.click(
+                force=True,
+                timeout=500
+            )
+
+            print("Refresh clicked once")
+
+        except Exception as e:
+        
+            print(f"Refresh failed : {e}")
+
+        # =========================================================
+        # WAIT FOR STRIKE TIME
+        # =========================================================
+
+        class_tab = train_box.locator(
+                    "li.ui-tabmenuitem"
+                ).filter(
+                    has_text=CONFIG["TRAVEL_CLASS"]
+                ).first
+        
+        avail_slot = train_box.locator(
+                    "td.link div.pre-avl"
+                ).filter(
+                    has_text=day_date_str
+                ).first
+        
+        book_btn = train_box.locator(
+                    "button:has-text('Book Now')"
+                ).first
+
         while time.time() < strike_ts:
             await asyncio.sleep(0.1)
-            
-        print("Strike Startted...")   
-        await page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            delete navigator.__proto__.webdriver;
-            window.chrome = {runtime: {}, loadTimes: () => {}, csi: () => {}};
-        """)
-        
+
+        print("STRIKE STARTED") 
         attempt = 0
-        MAX_ATTEMPTS = 1000
-         
-        refresh_tab = train_box.locator("div.pre-avl, li.ui-tabmenuitem").filter(
-            has_text=CONFIG['TRAVEL_CLASS']
-        ).first
-         
-        avail_slot = train_box.locator("div.pre-avl").filter(has_text=day_date_str).first
-        book_btn = train_box.locator("button:has-text('Book Now')")
-         
+        MAX_ATTEMPTS = 10000
+
         while attempt < MAX_ATTEMPTS:
+        
             attempt += 1
-             
+
             try:
-                print(f'Attempt: {attempt}')
-                if await refresh_tab.count() > 0:
-                    await refresh_tab.click(force=True, no_wait_after=True)
-                 
-                await asyncio.sleep(0.20)
-                 
-                status = await avail_slot.evaluate("el => el?.innerText || ''")
-                status = status.replace('\n', ' ').strip()
-                 
-                if '#' in status:
-                    continue
-                 
-                if ('AVAILABLE' in status or 'WL' in status or 'RAC' in status ):
-                     
-                    await avail_slot.click(force=True)
-                     
-                    await asyncio.sleep(0.10)
-                     
-                    await book_btn.click(force=True)
-                     
-                    break
-                     
-            except Exception as e:
+            
+                print(f"Attempt : {attempt}")
+
+                await class_tab.click(force=True)
+
                 await asyncio.sleep(0.05)
+
+                status = (
+                    await avail_slot.inner_text()
+                ).replace("\n", " ").strip()
+
+                print(status)
+                if "#" in status:
+                    await asyncio.sleep(0.02)
+                    continue
+                
+                await avail_slot.click()
+                await asyncio.sleep(0.08)
+                await book_btn.click()
+
+                print("BOOK NOW CLICKED")
+
+                break
+            
+            except Exception as e:
+                print(f"Loop Error : {e}")
+                await asyncio.sleep(0.02)
                 continue
-         
+        
         else:
             print(f"✗ Failed after {MAX_ATTEMPTS} attempts")
     
@@ -307,7 +342,7 @@ async def run():
 
                             retrying = false;
 
-                        }, 1800);
+                        }, 800);
                     });
 
                     observer.observe(document.body, {
