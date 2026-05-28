@@ -20,10 +20,10 @@ from solver import Solver
 
 CONFIG = {           
     "TRAVEL_DATE": "27/05/2026", 
-    "TRAVEL_CLASS": "Sleeper (SL)", 
+    "TRAVEL_CLASS": "AC 3 Tier (3A)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
-    "TRAIN_NUMBERS": ["12904","12618"],
-    "STRIKE_TIME": "14:04:58"
+    "TRAIN_NUMBERS": ["15018","15018"],
+    "STRIKE_TIME": "09:59:58"
 }
 
 CONFIG["TAB_COUNT"] = len(CONFIG["TRAIN_NUMBERS"])
@@ -88,8 +88,7 @@ async def run_page(page,train_number):
             "text=Refresh"
         ).first
         await refresh_btn.click(
-            force=True,
-            timeout=500
+            force=True
         )
         print("Refresh clicked once")
     except Exception as e:

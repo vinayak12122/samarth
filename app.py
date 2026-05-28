@@ -17,13 +17,20 @@ from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from datetime import datetime
 from solver import Solver
+from PreBookFlow import PerformPreBook
 
-CONFIG = {           
-    "TRAVEL_DATE": "27/05/2026", 
+CONFIG = {      
+
+# ===================================
+    "Username" : "lumi098",
+    "Password" : "jAVV#@1292110",
+# ====================================
+
+    "TRAVEL_DATE": "29/05/2026", 
     "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
-    "TRAIN_NUMBER": "12904" ,
-    "STRIKE_TIME": "14:04:58"
+    "TRAIN_NUMBER": "12617" ,
+    "STRIKE_TIME": "10:59:58"
 }
 
 def get_target_timestamp(target_str):
@@ -97,6 +104,19 @@ async def run():
 
         current_url = page.url
         print(f"Current URL : {current_url}")
+
+        user = input("\nDo you want to Perform Pre Booking FLow? (Y/N): ").strip().upper()
+
+        if user == 'Y':
+            credentials = {
+                'username':CONFIG["Username"],
+                'password':CONFIG["Password"]
+            }
+            await PerformPreBook(page,credentials)
+
+            await page.wait_for_url("**/nget/booking/train-list",timeout=0)
+        else:
+            print("\nSkipping Login PreFlow...\n")
     
     
         strike_ts = get_target_timestamp(CONFIG["STRIKE_TIME"])
@@ -197,7 +217,7 @@ async def run():
 
                 await class_tab.click(force=True)
 
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.4)
 
                 status = (
                     await avail_slot.inner_text()
@@ -226,134 +246,36 @@ async def run():
         try:
             await page.evaluate("""() => {
                 return new Promise((resolve) => {
-
-                    let started = false;
-                    let retrying = false;
-
-                    const observer = new MutationObserver(() => {
-
-                        // =====================================
-                        // SUCCESS CONDITION
-                        // =====================================
-                        if (document.querySelector('app-captcha')) {
-                            observer.disconnect();
-                            resolve("Done");
-                            return;
-                        }
-
-                        // =====================================
-                        // EXACT LOADER DETECTION (SHIELD)
-                        // =====================================
-                        // Instantly checks for IRCTC's blocking overlay DOM node
-                        const loaderActive = !!document.querySelector('.my-loading');
-
-                        if (loaderActive) {
-                            // IRCTC is processing network frames. Freeze interactions safely.
-                            return;
-                        }
-
-                        // =====================================
-                        // UI ELEMENT RESOLUTION
-                        // =====================================
-                        const upiRow = Array.from(
-                            document.querySelectorAll('tr.link')
-                        ).find(el => el.innerText.includes('BHIM/UPI'));
-
-                        const continueBtn = Array.from(
-                            document.querySelectorAll('button.btnDefault')
-                        ).find(el => el.innerText.trim() === 'Continue');
-
-                        if (!upiRow || !continueBtn) {
-                            return;
-                        }
-
-                        // =====================================
-                        // INITIAL ACTIONS
-                        // =====================================
-                        if (!started) {
+                    const observer = new MutationObserver((mutations, obs) => {
+                        const upiRow = Array.from(document.querySelectorAll('tr.link'))
+                                            .find(row => row.innerText.includes('BHIM/UPI'));
+                        const continueBtn = document.querySelector('button[type="submit"].btnDefault');
+        
+                        if (upiRow) {
                             const radio = upiRow.querySelector('.ui-radiobutton-box');
-
                             if (radio && !radio.classList.contains('ui-state-active')) {
                                 radio.click();
                             }
-
+                        }
+        
+                        if (continueBtn) {
                             continueBtn.click();
-                            started = true;
-                            return;
+                            obs.disconnect();
+                            resolve("Done");
                         }
-
-                        // PREVENT MULTIPLE PARALLEL RETRIES
-                        if (retrying) {
-                            return;
-                        }
-
-                        // =====================================
-                        // TOAST READS
-                        // =====================================
-                        const toastItems = document.querySelectorAll('p-toastitem');
-                        let retryNeeded = false;
-
-                        toastItems.forEach(toast => {
-                            const text = (toast.innerText || "").toLowerCase();
-
-                            if (
-                                text.includes("high load") ||
-                                text.includes("please retry") ||
-                                text.includes("ip") ||
-                                text.includes("inputs")
-                            ) {
-                                retryNeeded = true;
-                            }
-                        });
-
-                        if (!retryNeeded) {
-                            return;
-                        }
-
-                        retrying = true;
-
-                        // Execution recovery block
-                        setTimeout(() => {
-                            if (document.querySelector('app-captcha')) {
-                                retrying = false;
-                                return;
-                            }
-
-                            // Pre-click fallback verification check
-                            if (document.querySelector('.my-loading')) {
-                                retrying = false;
-                                return;
-                            }
-
-                            const freshBtn = Array.from(
-                                document.querySelectorAll('button.btnDefault')
-                            ).find(el => el.innerText.trim() === 'Continue');
-
-                            if (
-                                freshBtn &&
-                                !freshBtn.disabled &&
-                                freshBtn.offsetParent !== null
-                            ) {
-                                freshBtn.click();
-                            }
-
-                            retrying = false;
-
-                        }, 800);
                     });
-
-                    observer.observe(document.body, {
-                        childList: true,
-                        subtree: true,
-                        characterData: true
-                    });
+                    observer.observe(document.body, { childList: true, subtree: true });
                 });
             }""")
 
-            print("Passed Passenger Room")
+            # await page.locator("tr.link:has-text('BHIM/UPI') .ui-radiobutton-box").first.click(delay=random.randint(8, 15),timeout=0)
+            
+            # await asyncio.sleep(random.uniform(0.06, 0.11))
 
+            
+            # await page.locator("button[type='submit'].btnDefault").first.click(delay=random.randint(6, 12),timeout=3000)
         except Exception as e:
-            print(f'Passenger room failed: {e}')
+            print(f'Speed selection failed: {e}')
         
         # PHASE 4 - CAPTCHA PAGE 
         MAX_ATTEMPTS = 3
