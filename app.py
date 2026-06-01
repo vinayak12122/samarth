@@ -19,11 +19,13 @@ from datetime import datetime
 from solver import Solver
 
 CONFIG = {      
-    "TRAVEL_DATE": "01/06/2026", 
+    "TRAVEL_DATE": "18/07/2026", 
     "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
-    "TRAIN_NUMBER": "12102" ,
-    "STRIKE_TIME": "10:59:58"
+    "TRAIN_NUMBER": "13429" ,
+    "STRIKE_TIME": "10:59:57",
+    "QUOTA":"tq",
+    # [ TQ , PT ]
 }
 
 def get_target_timestamp(target_str):
@@ -236,32 +238,43 @@ async def run():
             print(f"✗ Failed after {MAX_ATTEMPTS} attempts")
     
         # PHASE 3 - PASSENGER ROOM
-        try:
-            upi_radio = page.locator("tr.link:has-text('BHIM/UPI') .ui-radiobutton-box").first
-            continue_btn = page.locator("button[type='submit'].btnDefault").first
+        quota = CONFIG.get("QUOTA", "").strip().lower()
+        is_tq = quota == "tq"
 
-            await upi_radio.wait_for(state="visible", timeout=10000)
+        await page.evaluate("""
+        async ({ isTq }) => {
+            return new Promise((resolve) => {
 
-            await asyncio.sleep(random.uniform(0.4, 0.6))
+                const observer = new MutationObserver((_, obs) => {
+                    if (isTq) {
+                        const confirmCheckbox = document.querySelector('#confirmberths');
 
-            await upi_radio.click(
-                delay=random.randint(35, 65), 
-                position={"x": random.randint(3, 7), "y": random.randint(3, 7)},
-                timeout=2000, 
-                force=True
-            )
-            
-            await asyncio.sleep(random.uniform(0.25, 0.3))
+                        if (confirmCheckbox && !confirmCheckbox.checked) {
+                            confirmCheckbox.click();
+                            return;
+                        }
+                    }
 
-            await continue_btn.click(
-                delay=random.randint(35, 65), 
-                position={"x": random.randint(15, 70), "y": random.randint(10, 30)},
-                timeout=2000, 
-                force=True
-            )
-
-        except Exception as e:
-            print(f'❌ Passenger room execution failed completely: {e}')
+                    const upiRow = Array.from(document.querySelectorAll('tr.link')).find(row => row.innerText.includes('BHIM/UPI'));
+                    const continueBtn = document.querySelector('button[type="submit"].btnDefault');
+    
+                    if (upiRow) {
+                        const radio = upiRow.querySelector('.ui-radiobutton-box');
+                        if (radio && !radio.classList.contains('ui-state-active')) {
+                            radio.click();
+                        }
+                    }
+    
+                    if (continueBtn) {
+                        continueBtn.click();
+                        obs.disconnect();
+                        resolve("Done");
+                    }
+                });
+                observer.observe(document.body, { childList: true, subtree: true });
+            });
+        }
+        """,{"isTq": is_tq})
 
         # PHASE 4 - CAPTCHA PAGE 
         MAX_ATTEMPTS = 3
