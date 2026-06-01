@@ -17,19 +17,12 @@ from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from datetime import datetime
 from solver import Solver
-from PreBookFlow import PerformPreBook
 
 CONFIG = {      
-
-# ===================================
-    "Username" : "lumi098",
-    "Password" : "jAVV#@1292110",
-# ====================================
-
-    "TRAVEL_DATE": "29/05/2026", 
+    "TRAVEL_DATE": "01/06/2026", 
     "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
-    "TRAIN_NUMBER": "12617" ,
+    "TRAIN_NUMBER": "12102" ,
     "STRIKE_TIME": "10:59:58"
 }
 
@@ -105,18 +98,18 @@ async def run():
         current_url = page.url
         print(f"Current URL : {current_url}")
 
-        user = input("\nDo you want to Perform Pre Booking FLow? (Y/N): ").strip().upper()
+        # user = input("\nDo you want to Perform Pre Booking FLow? (Y/N): ").strip().upper()
 
-        if user == 'Y':
-            credentials = {
-                'username':CONFIG["Username"],
-                'password':CONFIG["Password"]
-            }
-            await PerformPreBook(page,credentials)
+        # if user == 'Y':
+        #     credentials = {
+        #         'username':CONFIG["Username"],
+        #         'password':CONFIG["Password"]
+        #     }
+        #     await PerformPreBook(page,credentials)
 
-            await page.wait_for_url("**/nget/booking/train-list",timeout=0)
-        else:
-            print("\nSkipping Login PreFlow...\n")
+        #     await page.wait_for_url("**/nget/booking/train-list",timeout=0)
+        # else:
+        #     print("\nSkipping Login PreFlow...\n")
     
     
         strike_ts = get_target_timestamp(CONFIG["STRIKE_TIME"])
@@ -217,7 +210,7 @@ async def run():
 
                 await class_tab.click(force=True)
 
-                await asyncio.sleep(0.4)
+                await asyncio.sleep(0.3)
 
                 status = (
                     await avail_slot.inner_text()
@@ -225,18 +218,18 @@ async def run():
 
                 # print(status)
                 if "#" in status:
-                    await asyncio.sleep(0.02)
+                    await asyncio.sleep(0.1)
                     continue
                 
                 await avail_slot.click()
-                await asyncio.sleep(0.08)
+                await asyncio.sleep(0.2)
                 await book_btn.click()
 
                 break
             
             except Exception as e:
                 print(f"Loop Error : {e}")
-                await asyncio.sleep(0.02)
+                await asyncio.sleep(0.1)
                 continue
         
         else:
@@ -244,39 +237,32 @@ async def run():
     
         # PHASE 3 - PASSENGER ROOM
         try:
-            await page.evaluate("""() => {
-                return new Promise((resolve) => {
-                    const observer = new MutationObserver((mutations, obs) => {
-                        const upiRow = Array.from(document.querySelectorAll('tr.link'))
-                                            .find(row => row.innerText.includes('BHIM/UPI'));
-                        const continueBtn = document.querySelector('button[type="submit"].btnDefault');
-        
-                        if (upiRow) {
-                            const radio = upiRow.querySelector('.ui-radiobutton-box');
-                            if (radio && !radio.classList.contains('ui-state-active')) {
-                                radio.click();
-                            }
-                        }
-        
-                        if (continueBtn) {
-                            continueBtn.click();
-                            obs.disconnect();
-                            resolve("Done");
-                        }
-                    });
-                    observer.observe(document.body, { childList: true, subtree: true });
-                });
-            }""")
+            upi_radio = page.locator("tr.link:has-text('BHIM/UPI') .ui-radiobutton-box").first
+            continue_btn = page.locator("button[type='submit'].btnDefault").first
 
-            # await page.locator("tr.link:has-text('BHIM/UPI') .ui-radiobutton-box").first.click(delay=random.randint(8, 15),timeout=0)
-            
-            # await asyncio.sleep(random.uniform(0.06, 0.11))
+            await upi_radio.wait_for(state="visible", timeout=10000)
 
+            await asyncio.sleep(random.uniform(0.4, 0.6))
+
+            await upi_radio.click(
+                delay=random.randint(35, 65), 
+                position={"x": random.randint(3, 7), "y": random.randint(3, 7)},
+                timeout=2000, 
+                force=True
+            )
             
-            # await page.locator("button[type='submit'].btnDefault").first.click(delay=random.randint(6, 12),timeout=3000)
+            await asyncio.sleep(random.uniform(0.25, 0.3))
+
+            await continue_btn.click(
+                delay=random.randint(35, 65), 
+                position={"x": random.randint(15, 70), "y": random.randint(10, 30)},
+                timeout=2000, 
+                force=True
+            )
+
         except Exception as e:
-            print(f'Speed selection failed: {e}')
-        
+            print(f'❌ Passenger room execution failed completely: {e}')
+
         # PHASE 4 - CAPTCHA PAGE 
         MAX_ATTEMPTS = 3
         try:
