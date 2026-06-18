@@ -19,12 +19,12 @@ from datetime import datetime
 from solver import Solver
 
 CONFIG = {      
-    "TRAVEL_DATE": "18/07/2026", 
+    "TRAVEL_DATE": "19/06/2026", 
     "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
-    "TRAIN_NUMBER": "13429" ,
-    "STRIKE_TIME": "10:59:57",
-    "QUOTA":"tq",
+    "TRAIN_NUMBER": "12533" ,
+    "STRIKE_TIME": "10:59:58",
+    "QUOTA":"pt",
     # [ TQ , PT ]
 }
 
@@ -196,85 +196,149 @@ async def run():
                     "button:has-text('Book Now')"
                 ).first
 
-        while time.time() < strike_ts:
-            await asyncio.sleep(0.1)
+        while time.time() < (strike_ts - 0.5):
+            await asyncio.sleep(random.uniform(0.08, 0.15))
 
         attempt = 0
         MAX_ATTEMPTS = 10000
 
         while attempt < MAX_ATTEMPTS:
-        
             attempt += 1
 
             try:
-            
-                print(f"Attempt : {attempt}")
 
-                await class_tab.click(force=True)
+                try:
+                    await class_tab.click(delay=random.randint(12, 28), timeout=400)
+                except:
+                    print('Class Tab Fallback')
+                    await class_tab.dispatch_event("click")
 
-                await asyncio.sleep(0.3)
+                await asyncio.sleep(random.uniform(0.28, 0.34))
 
                 status = (
                     await avail_slot.inner_text()
                 ).replace("\n", " ").strip()
 
-                # print(status)
                 if "#" in status:
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(random.uniform(0.08, 0.15))
                     continue
                 
-                await avail_slot.click()
-                await asyncio.sleep(0.2)
-                await book_btn.click()
+                try:
+                    await avail_slot.click(delay=random.randint(15, 30), timeout=400)
+                except:
+                    print('Avail Slot Fallback')
+                    await avail_slot.dispatch_event("click")
+
+
+                await asyncio.sleep(random.uniform(0.06, 0.12))
+
+                try:
+                    await book_btn.click(delay=random.randint(10, 25), timeout=400)
+                except:
+                    print('Booking Button Fallback')
+                    await book_btn.dispatch_event("click")
 
                 break
             
             except Exception as e:
-                print(f"Loop Error : {e}")
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(random.uniform(0.04, 0.09))
                 continue
         
         else:
             print(f"✗ Failed after {MAX_ATTEMPTS} attempts")
-    
-        # PHASE 3 - PASSENGER ROOM
+        
         quota = CONFIG.get("QUOTA", "").strip().lower()
         is_tq = quota == "tq"
 
-        await page.evaluate("""
-        async ({ isTq }) => {
-            return new Promise((resolve) => {
-
-                const observer = new MutationObserver((_, obs) => {
-                    if (isTq) {
-                        const confirmCheckbox = document.querySelector('#confirmberths');
-
-                        if (confirmCheckbox && !confirmCheckbox.checked) {
-                            confirmCheckbox.click();
-                            return;
+        # PHASE 3 - PASSENGER ROOM
+        try:
+            await page.evaluate("""() => {
+                return new Promise((resolve) => {
+                    const observer = new MutationObserver((mutations, obs) => {
+                        const upiRow = Array.from(document.querySelectorAll('tr.link'))
+                                            .find(row => row.innerText.includes('BHIM/UPI'));
+                        const continueBtn = document.querySelector('button[type="submit"].btnDefault');
+        
+                        if (upiRow) {
+                            const radio = upiRow.querySelector('.ui-radiobutton-box');
+                            if (radio && !radio.classList.contains('ui-state-active')) {
+                                radio.click();
+                            }
                         }
-                    }
-
-                    const upiRow = Array.from(document.querySelectorAll('tr.link')).find(row => row.innerText.includes('BHIM/UPI'));
-                    const continueBtn = document.querySelector('button[type="submit"].btnDefault');
-    
-                    if (upiRow) {
-                        const radio = upiRow.querySelector('.ui-radiobutton-box');
-                        if (radio && !radio.classList.contains('ui-state-active')) {
-                            radio.click();
+        
+                        if (continueBtn) {
+                            continueBtn.click();
+                            obs.disconnect();
+                            resolve("Done");
                         }
-                    }
-    
-                    if (continueBtn) {
-                        continueBtn.click();
-                        obs.disconnect();
-                        resolve("Done");
-                    }
+                    });
+                    observer.observe(document.body, { childList: true, subtree: true });
                 });
-                observer.observe(document.body, { childList: true, subtree: true });
-            });
-        }
-        """,{"isTq": is_tq})
+            }""")
+
+            # await page.locator("tr.link:has-text('BHIM/UPI') .ui-radiobutton-box").first.click(delay=random.randint(8, 15),timeout=0)
+            
+            # await asyncio.sleep(random.uniform(0.06, 0.11))
+
+            
+            # await page.locator("button[type='submit'].btnDefault").first.click(delay=random.randint(6, 12),timeout=3000)
+        except Exception as e:
+            print(f'Speed selection failed: {e}')
+#         try:
+
+#             if is_tq:
+#                 confirm_checkbox = page.locator("#confirmberths").first
+#                 print("Label count:",await page.locator("label[for='confirmberths']").count())
+
+                
+#                 await confirm_checkbox.wait_for(
+#                     state="visible",
+#                     timeout=10000
+#                 )
+
+#                 print("Label visible:",await page.locator("label[for='confirmberths']").is_visible())
+#                 if not await confirm_checkbox.is_checked():
+#                     confirm_label = page.locator(
+#                         "label[for='confirmberths']"
+#                     ).first
+
+#                     await confirm_label.click(
+#                         delay=random.randint(35, 65),
+#                         timeout=2000,
+#                         force=True
+#                     )
+
+#                 print(
+#     "Checkbox checked:",
+#     await confirm_checkbox.is_checked()
+# )
+
+#             upi_radio = page.locator("tr.link:has-text('BHIM/UPI') .ui-radiobutton-box").first
+#             continue_btn = page.locator("button[type='submit'].btnDefault").first
+
+#             await upi_radio.wait_for(state="visible", timeout=10000)
+
+#             await asyncio.sleep(random.uniform(0.3, 0.5))
+
+#             await upi_radio.click(
+#                 delay=random.randint(35, 65), 
+#                 position={"x": random.randint(3, 7), "y": random.randint(3, 7)},
+#                 timeout=2000, 
+#                 force=True
+#             )
+            
+#             await asyncio.sleep(random.uniform(0.25, 0.3))
+
+#             await continue_btn.click(
+#                 delay=random.randint(35, 65), 
+#                 position={"x": random.randint(15, 70), "y": random.randint(10, 30)},
+#                 timeout=2000, 
+#                 force=True
+#             )
+
+#         except Exception as e:
+#             print(f'❌ Passenger room execution failed completely: {e}')
+
 
         # PHASE 4 - CAPTCHA PAGE 
         MAX_ATTEMPTS = 3
@@ -473,14 +537,45 @@ async def run():
         except Exception as e:
             print(f'Payment Phase Error: {e}')
 
+        # PHASE 5 : Payment Selection
+        # try:
+        
+        #     pay_btn = await page.wait_for_selector(
+        #         'button.btn-primary',
+        #         state='visible',
+        #         timeout=25000
+        #     )
+
+        #     await pay_btn.wait_for_element_state(
+        #         'enabled',
+        #         timeout=25000
+        #     )
+
+        #     await pay_btn.click()
+
+        #     print("✅ Payment Button Clicked")
+
+        # except Exception as e:
+        #     print(f'💥 Payment Phase Error: {e}')
+
+
         # PHASE 6 : Initiating QR Generation
         # try:
+        
         #     qr_selector = 'span[onclick*="submitUpiQrForm"]'
-        #     target_span = await page.wait_for_selector(qr_selector, state="visible", timeout=0)
+
+        #     target_span = await page.wait_for_selector(
+        #         qr_selector,
+        #         state="visible",
+        #         timeout=25000
+        #     )
+
         #     await target_span.click()
+
+        #     print("✅ QR Generation Triggered")
+
         # except Exception as e:
         #     print(f'QR Generation Error: {e}')
-
     
     except Exception as e:
         print(f"An error occurred: {e}")
