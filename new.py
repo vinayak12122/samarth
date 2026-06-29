@@ -1,30 +1,81 @@
 # STEPS :-
 
-# 1st - taskkill /F /IM msedge.exe /T
+# 1st - 
+# 
+# ================================= EDGE ====================================
+# taskkill /F /IM msedge.exe /T
+# 
+# ================================= CHROME ====================================
+# taskkill /F /IM chrome.exe /T
 
-# 2nd - "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --remote-debugging-port=9227 --user-data-dir="C:\edge_temp_profile" --disable-blink-features=AutomationControlled
+# 2nd - 
+
+# ================================= EDGE ====================================
+# "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --remote-debugging-port=9222 --user-data-dir="C:\Users\Public\edge_clean_profile"
+
+# ================================= CHROME ====================================
+# "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9227 --user-data-dir="C:\temp_profile" --disable-blink-features=AutomationControlled
 
 # cd samarth
 
 # 4rd - python app.py
-
+import re
 import sys
 import time
+import math
 import base64
 import asyncio
 import random
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, expect, TimeoutError
 from playwright_stealth import Stealth
 from datetime import datetime
 from solver import Solver
 
-CONFIG = {           
-    "TRAVEL_DATE": "26/05/2026", 
+CONFIG = {      
+    "TRAVEL_DATE": "01/07/2026", 
     "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
-    "TRAIN_NUMBER": "12168" ,
-    "STRIKE_TIME": "10:59:58"
+    "TRAIN_NUMBER": "12904" ,
+    "STRIKE_TIME": "10:59:59",
+    "QUOTA":"pt",
+    # [ TQ , PT ]
 }
+
+global_mouse = {
+    "last_x": 300, 
+    "last_y": 300
+}
+
+async def human_glide_to(page, locator, mouse_state):
+    box = await locator.bounding_box()
+    if not box:
+        return False
+        
+    tgt_x = box["x"] + (box["width"] * random.uniform(0.45, 0.55))
+    tgt_y = box["y"] + (box["height"] * random.uniform(0.45, 0.55))
+    
+    start_x, start_y = mouse_state["last_x"], mouse_state["last_y"]
+    steps = random.randint(3, 6)
+    
+    amp_x = random.uniform(-0.5, 0.5) * (box["width"] * 0.15)
+    amp_y = random.uniform(-0.5, 0.5) * (box["height"] * 0.15)
+    
+    for i in range(1, steps + 1):
+        t = i / steps
+        dampener = math.sin(t * math.pi) * (1 - t)
+        
+        curr_x = start_x + (tgt_x - start_x) * t + (amp_x * dampener)
+        curr_y = start_y + (tgt_y - start_y) * t + (amp_y * dampener)
+        
+        await page.mouse.move(curr_x, curr_y)
+        await asyncio.sleep(random.uniform(0.003, 0.006))
+        
+    await page.mouse.move(tgt_x, tgt_y)
+    await asyncio.sleep(random.uniform(0.04, 0.07))
+    
+    mouse_state["last_x"], mouse_state["last_y"] = tgt_x, tgt_y
+    return True
+
 
 def get_target_timestamp(target_str):
     now = datetime.now()
@@ -38,10 +89,18 @@ async def run():
     async_playwright_instance = await async_playwright().start()
     try:
 
-        browser = await async_playwright_instance.chromium.connect_over_cdp("http://localhost:9227")
+        browser = await async_playwright_instance.chromium.connect_over_cdp("http://localhost:9222")
     
         browser_context = browser.contexts[0]
-        page = browser_context.pages[0] if browser_context.pages else await browser_context.new_page()
+        page = None
+        for p in browser_context.pages:
+            if "irctc.co.in" in p.url:
+                page = p
+                break
+                
+        if not page:
+            print("❌ Error: Open IRCTC session window not detected on port 9222!")
+            return
 
         await page.route("**/*.{png,jpg,jpeg,gif,webp,svg}", lambda route: 
             route.continue_() if any(x in route.request.url.lower() for x in ["captcha", "paytm", "qr"]) else route.abort())
@@ -60,7 +119,6 @@ async def run():
         app: {}
     };
     
-    // Extra safety layers
     const originalQuery = window.navigator.permissions.query;
     window.navigator.permissions.query = (parameters) => (
         parameters.name === 'notifications' ?
@@ -68,35 +126,27 @@ async def run():
             originalQuery(parameters)
     );
     
-    Object.defineProperty(navigator, 'plugins', {
-        get: () => [1, 2, 3, 4, 5],
-    });
-    
-    Object.defineProperty(navigator, 'languages', {
-        get: () => ['en-US', 'en', 'hi'],
-    });
-    
-    // Remove Playwright signatures
     delete window.cdc_adoQpoasnfa76pfcZLmcfl_Array;
     delete window.cdc_adoQpoasnfa76pfcZLmcfl_Promise;
     delete window.cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
-    
-    // WebGL fingerprint
-    const getParameter = WebGLRenderingContext.prototype.getParameter;
-    WebGLRenderingContext.prototype.getParameter = function(parameter) {
-        if (parameter === 37445) return 'Intel Inc.';
-        if (parameter === 37446) return 'Intel Iris OpenGL Engine';
-        return getParameter.call(this, parameter);
-    };
-    
-    // Make dimensions realistic
-    Object.defineProperty(window, 'outerWidth', {get: () => window.innerWidth});
-    Object.defineProperty(window, 'outerHeight', {get: () => window.innerHeight});
 """)
 
 
         current_url = page.url
         print(f"Current URL : {current_url}")
+
+        # user = input("\nDo you want to Perform Pre Booking FLow? (Y/N): ").strip().upper()
+
+        # if user == 'Y':
+        #     credentials = {
+        #         'username':CONFIG["Username"],
+        #         'password':CONFIG["Password"]
+        #     }
+        #     await PerformPreBook(page,credentials)
+
+        #     await page.wait_for_url("**/nget/booking/train-list",timeout=0)
+        # else:
+        #     print("\nSkipping Login PreFlow...\n")
     
     
         strike_ts = get_target_timestamp(CONFIG["STRIKE_TIME"])
@@ -137,262 +187,288 @@ async def run():
         date_obj = datetime.strptime(CONFIG["TRAVEL_DATE"], "%d/%m/%Y")
         day_date_str = date_obj.strftime("%d %b")
     
+        # =========================================================
+        # PRE STRIKE
+        # =========================================================
+        try:
+            refresh_btn = train_box.locator(
+                "div.pre-avl"
+            ).filter(
+                has_text=CONFIG["TRAVEL_CLASS"]
+            ).locator(
+                "text=Refresh"
+            ).first
+
+            await refresh_btn.wait_for(state="visible", timeout=2000)
+
+            await human_glide_to(page, refresh_btn, global_mouse)
+
+            await refresh_btn.click(timeout=1000)
+            print("Refresh clicked")
+
+            await asyncio.sleep(random.uniform(0.25, 0.45))
+
+
+        except Exception as e:
+            print(f"Refresh failed or element shifted: {e}")
+
+        # =========================================================
+        # WAIT FOR STRIKE TIME
+        # =========================================================
+
+        class_tab = train_box.locator(
+                    "li.ui-tabmenuitem"
+                ).filter(
+                    has_text=CONFIG["TRAVEL_CLASS"]
+                ).first
+        
+        avail_slot = train_box.locator(
+                    "td.link div.pre-avl"
+                ).filter(
+                    has_text=day_date_str
+                ).first
+        
+        book_btn = train_box.locator(
+                    "button:has-text('Book Now')"
+                ).first
+
         while time.time() < strike_ts:
             await asyncio.sleep(0.1)
-            
-        print("Strike Startted...")   
-        await page.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
-            delete navigator.__proto__.webdriver;
-            window.chrome = {runtime: {}, loadTimes: () => {}, csi: () => {}};
-        """)
-        
-        attempt = 0
-        MAX_ATTEMPTS = 1000
-        
-        refresh_tab = train_box.locator("div.pre-avl, li.ui-tabmenuitem").filter(
-            has_text=CONFIG['TRAVEL_CLASS']
-        ).first
-        
-        avail_slot = train_box.locator("div.pre-avl").filter(has_text=day_date_str).first
-        book_btn = train_box.locator("button:has-text('Book Now')")
 
-        start = time.time()
-        
+        attempt = 0
+        MAX_ATTEMPTS = 10000
+
         while attempt < MAX_ATTEMPTS:
+        
             attempt += 1
-            
+
             try:
-                print(f'Attempt : {attempt}')
-                if await refresh_tab.count() > 0:
-                    await refresh_tab.click(force=True, no_wait_after=True)
-                
-                await asyncio.sleep(0.10)
-                
-                status = await avail_slot.evaluate("el => el?.innerText || ''")
-                status = status.replace('\n', ' ').strip()
-                
-                if '#' in status:
-                    continue
-                
-                if 'AVAILABLE' in status or 'WL' in status or 'RAC' in status:
-                    
-                    await avail_slot.click(force=True)
-                    
-                    await asyncio.sleep(0.10)
-                    
-                    await book_btn.click(force=True)
-                    print(time.time() - start)
+            
+                print(f"Attempt : {attempt}")
+
+                await human_glide_to(page, class_tab, global_mouse)
+                await class_tab.click()
+
+                try:
+                    await expect(class_tab).to_have_attribute("aria-selected", "true", timeout=2500)
+                    await asyncio.sleep(random.uniform(0.030, 0.080))
+                except TimeoutError:
+                    pass
+
+                await asyncio.sleep(0.3)
+
+                status = (await avail_slot.inner_text()).replace("\n", " ").strip()
+
+                if "#" not in status:
+                    await human_glide_to(page, avail_slot, global_mouse)
+                    await avail_slot.click()
+                    try:
+                        await expect(book_btn).not_to_have_class(re.compile(r"disable-book"), timeout=2000)
+                    except TimeoutError:
+                        await book_btn.wait_for(state="visible", timeout=1500)
+
+                    await human_glide_to(page, book_btn, global_mouse)
+                    await book_btn.click()
+
                     break
-                    
+            
             except Exception as e:
-                await asyncio.sleep(0.05)
+                print(f"Loop Error : {e}")
+                await asyncio.sleep(0.1)
                 continue
         
         else:
             print(f"✗ Failed after {MAX_ATTEMPTS} attempts")
-    
+        
+        quota = CONFIG.get("QUOTA", "").strip().lower()
+        is_tq = quota == "tq"
+
         # PHASE 3 - PASSENGER ROOM
+        # try:
+        #     await page.evaluate("""() => {
+        #         return new Promise((resolve) => {
+        #             const observer = new MutationObserver((mutations, obs) => {
+        #                 const upiRow = Array.from(document.querySelectorAll('tr.link'))
+        #                                     .find(row => row.innerText.includes('BHIM/UPI'));
+        #                 const continueBtn = document.querySelector('button[type="submit"].btnDefault');
+        
+        #                 if (upiRow) {
+        #                     const radio = upiRow.querySelector('.ui-radiobutton-box');
+        #                     if (radio && !radio.classList.contains('ui-state-active')) {
+        #                         radio.click();
+        #                     }
+        #                 }
+        
+        #                 if (continueBtn) {
+        #                     continueBtn.click();
+        #                     obs.disconnect();
+        #                     resolve("Done");
+        #                 }
+        #             });
+        #             observer.observe(document.body, { childList: true, subtree: true });
+        #         });
+        #     }""")
+
+        #     # await page.locator("tr.link:has-text('BHIM/UPI') .ui-radiobutton-box").first.click(delay=random.randint(8, 15),timeout=0)
+            
+        #     # await asyncio.sleep(random.uniform(0.06, 0.11))
+
+            
+        #     # await page.locator("button[type='submit'].btnDefault").first.click(delay=random.randint(6, 12),timeout=3000)
+        # except Exception as e:
+        #     print(f'Speed selection failed: {e}')
         try:
-            await page.evaluate("""() => {
-                return new Promise((resolve) => {
 
-                    let started = false;
-                    let retrying = false;
+            if is_tq:
+                confirm_checkbox = page.locator("#confirmberths").first
+                print("Label count:",await page.locator("label[for='confirmberths']").count())
 
-                    const observer = new MutationObserver(() => {
+                
+                await confirm_checkbox.wait_for(
+                    state="visible",
+                    timeout=10000
+                )
 
-                        // =====================================
-                        // SUCCESS CONDITION
-                        // =====================================
-                        if (document.querySelector('app-captcha')) {
-                            observer.disconnect();
-                            resolve("Done");
-                            return;
-                        }
+                print("Label visible:",await page.locator("label[for='confirmberths']").is_visible())
+                if not await confirm_checkbox.is_checked():
+                    confirm_label = page.locator(
+                        "label[for='confirmberths']"
+                    ).first
 
-                        // =====================================
-                        // EXACT LOADER DETECTION (SHIELD)
-                        // =====================================
-                        // Instantly checks for IRCTC's blocking overlay DOM node
-                        const loaderActive = !!document.querySelector('.my-loading');
+                    await confirm_label.click(
+                        delay=random.randint(35, 65),
+                        timeout=2000,
+                        force=True
+                    )
 
-                        if (loaderActive) {
-                            // IRCTC is processing network frames. Freeze interactions safely.
-                            return;
-                        }
+                print("Checkbox checked:", await confirm_checkbox.is_checked())
 
-                        // =====================================
-                        // UI ELEMENT RESOLUTION
-                        // =====================================
-                        const upiRow = Array.from(
-                            document.querySelectorAll('tr.link')
-                        ).find(el => el.innerText.includes('BHIM/UPI'));
+            upi_radio = page.locator("tr.link:has-text('BHIM/UPI') .ui-radiobutton-box").first
+            continue_btn = page.locator("button[type='submit'].btnDefault").first
 
-                        const continueBtn = Array.from(
-                            document.querySelectorAll('button.btnDefault')
-                        ).find(el => el.innerText.trim() === 'Continue');
+            await upi_radio.wait_for(state="visible", timeout=10000)
 
-                        if (!upiRow || !continueBtn) {
-                            return;
-                        }
+            await asyncio.sleep(random.uniform(0.15, 0.25))
 
-                        // =====================================
-                        // INITIAL ACTIONS
-                        // =====================================
-                        if (!started) {
-                            const radio = upiRow.querySelector('.ui-radiobutton-box');
+            await upi_radio.click(
+                delay=random.randint(35, 65), 
+                position={"x": random.randint(3, 7), "y": random.randint(3, 7)},
+                timeout=2000, 
+                force=True
+            )
+            
+            await asyncio.sleep(random.uniform(0.15, 0.27))
 
-                            if (radio && !radio.classList.contains('ui-state-active')) {
-                                radio.click();
-                            }
-
-                            continueBtn.click();
-                            started = true;
-                            return;
-                        }
-
-                        // PREVENT MULTIPLE PARALLEL RETRIES
-                        if (retrying) {
-                            return;
-                        }
-
-                        // =====================================
-                        // TOAST READS
-                        // =====================================
-                        const toastItems = document.querySelectorAll('p-toastitem');
-                        let retryNeeded = false;
-
-                        toastItems.forEach(toast => {
-                            const text = (toast.innerText || "").toLowerCase();
-
-                            if (
-                                text.includes("high load") ||
-                                text.includes("please retry") ||
-                                text.includes("ip") ||
-                                text.includes("inputs")
-                            ) {
-                                retryNeeded = true;
-                            }
-                        });
-
-                        if (!retryNeeded) {
-                            return;
-                        }
-
-                        retrying = true;
-
-                        // Execution recovery block
-                        setTimeout(() => {
-                            if (document.querySelector('app-captcha')) {
-                                retrying = false;
-                                return;
-                            }
-
-                            // Pre-click fallback verification check
-                            if (document.querySelector('.my-loading')) {
-                                retrying = false;
-                                return;
-                            }
-
-                            const freshBtn = Array.from(
-                                document.querySelectorAll('button.btnDefault')
-                            ).find(el => el.innerText.trim() === 'Continue');
-
-                            if (
-                                freshBtn &&
-                                !freshBtn.disabled &&
-                                freshBtn.offsetParent !== null
-                            ) {
-                                freshBtn.click();
-                            }
-
-                            retrying = false;
-
-                        }, 400);
-                    });
-
-                    observer.observe(document.body, {
-                        childList: true,
-                        subtree: true,
-                        characterData: true
-                    });
-                });
-            }""")
-
-            print("Passed Passenger Room")
+            await continue_btn.click(
+                delay=random.randint(35, 65), 
+                position={"x": random.randint(15, 70), "y": random.randint(10, 30)},
+                timeout=2000, 
+                force=True
+            )
 
         except Exception as e:
-            print(f'Passenger room failed: {e}')
-        
+            print(f'❌ Passenger room execution failed completely: {e}')
+
+
         # PHASE 4 - CAPTCHA PAGE 
-        MAX_ATTEMPTS = 3
+        MAX_ATTEMPTS = 5  
         try:
             await page.wait_for_selector("app-captcha", timeout=0)
-        
+
             for a in range(1, MAX_ATTEMPTS + 1):
-        
+
                 b64 = await page.evaluate("""() => {
                     const img = document.querySelector('img.captcha-img');
-                    return img?.src?.startsWith('data:image') ? img.src : null;
+                    return (img && img.src && img.src.startsWith('data:image')) ? img.src : null;
                 }""")
+
+                if not b64:
+                    print(f"[{a}] No captcha image")
+                    await asyncio.sleep(0.1)
+                    continue
                 
-                # if not b64:
-                #     print(f"[{a}] ✗ no img, retrying...")
-                #     await asyncio.sleep(0.3)
-                #     continue
-        
                 try:
                     txt = (await asyncio.to_thread(Solver, b64) or "").strip()
                 except Exception as solver_error:
-                    print(f"[{a}] ✗ Solver error: {solver_error}")
-                    await asyncio.sleep(0.3)
+                    print(f"solver pipeline error: {solver_error}")
                     continue
-        
+                
                 if not txt:
-                    print(f"[{a}] ✗ empty captcha text")
-                    await asyncio.sleep(0.3)
+                    print("Text not found")
                     continue
-        
-                ok = await page.evaluate("""t => new Promise(r => {
-                    const i = document.getElementById('captcha'),
-                          b = document.querySelector('button[type=submit].train_Search');
-                    
-                    if (!i || !b) return r(0);
-                    
+
+                outcome = await page.evaluate("""(args) => new Promise(resolve => {
+                    const t = args.txt;
+                    const solvedImgSrc = args.solvedSrc;
+
+                    const i = document.getElementById('captcha');
+                    const b = document.querySelector('button[type=submit].train_Search');
+                    const currentImg = document.querySelector('img.captcha-img');
+
+                    if (!i || !b || !currentImg) return resolve("FAILURE_DOM");
+                                              
+                    if (currentImg.src !== solvedImgSrc) {
+                        return resolve("RACE_CONDITION_ABORT");
+                    }
+
+                    const toastBaseline = document.querySelectorAll('.ui-toast-message-error').length;
+                    const submittedImgSrc = currentImg.src;
+
                     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, t);
                     i.dispatchEvent(new Event('input', {bubbles: true}));
-                    
-                    b.click();
-                    
-                    let n = 0;
-                    const c = () => {
-                        if (document.querySelector('app-payment, .bank-type') || 
-                            location.href.includes('payment')) {
-                            return r(1);
+
+                    b.click(); 
+
+                    const startTime = performance.now();
+
+                    const watchOutcomes = () => {
+                        if (document.querySelector('app-payment, .bank-type') || location.href.includes('payment')) {
+                            return resolve("SUCCESS");
                         }
-                        
-                        if (document.querySelector('.ui-toast-message-error') || 
-                            !i.value) {
-                            return r(0);
+                        const currentToastCount = document.querySelectorAll('.ui-toast-message-error').length;
+                        if (currentToastCount > toastBaseline) {
+                            return resolve("FAILURE_WRONG_CAPTCHA");
                         }
-                        
-                        ++n < 50 ? setTimeout(c, 16) : r(0);
+
+                        const liveImg = document.querySelector('img.captcha-img');
+                        if (liveImg && liveImg.src && liveImg.src !== submittedImgSrc) {
+                            return resolve("FAILURE_AUTO_REFRESH");
+                        }
+
+                        // FIX EXECUTION: Drop the iteration counter. Check real-world millisecond intervals.
+                        if (performance.now() - startTime >= 8000) {
+                            return resolve("SERVER_LAG_TIMEOUT");
+                        }
+
+                        setTimeout(watchOutcomes, 16);
                     };
-                    
-                    c();
-                })""", txt)
-                        
-                if ok:
+
+                    watchOutcomes();
+                })""", {"txt": txt, "solvedSrc": b64})
+
+                print(f"[Captcha Attempt {a}] Outcome = {outcome}")
+
+
+                if outcome == "SUCCESS":
                     break
+
+                elif outcome == "RACE_CONDITION_ABORT":
+                    print(f"[{a}] Race condition")
+                    continue
+
+                elif outcome in ["FAILURE_WRONG_CAPTCHA", "FAILURE_AUTO_REFRESH"]:
+                    print(f"[{a}] Wrong captcha")
+                    await asyncio.sleep(random.uniform(0.04, 0.08))
+                    continue
+
                 else:
-                    print(f"[{a}] ✗ Failed , retrying...")
-                    await asyncio.sleep(0.3)
-                    
+                    await asyncio.sleep(0.15)
+
             else:
-                print(f"✗ CAPTCHA FAILED after {MAX_ATTEMPTS} attempts")
-        except Exception as e:
-            print(f"Unexpected error: {type(e).__name__}: {e}")
+                print(f"Active allocation limits reached ({MAX_ATTEMPTS}).")
+
+        except Exception as global_err:
+            print(f"System Process Interrupted: {global_err}")
 
         # PHASE 5 : Payment Selection With Fallback
         try:
@@ -455,7 +531,7 @@ async def run():
                             // SWITCH TAB
                             if (
                                 multiplePaymentTab &&
-                                !multiplePaymentTab.classList.contains      ('bank-type-active')
+                                !multiplePaymentTab.classList.contains('bank-type-active')
                             ) {
                                 multiplePaymentTab.click();
                                 return;
@@ -522,14 +598,45 @@ async def run():
         except Exception as e:
             print(f'Payment Phase Error: {e}')
 
+        # PHASE 5 : Payment Selection
+        # try:
+        
+        #     pay_btn = await page.wait_for_selector(
+        #         'button.btn-primary',
+        #         state='visible',
+        #         timeout=25000
+        #     )
+
+        #     await pay_btn.wait_for_element_state(
+        #         'enabled',
+        #         timeout=25000
+        #     )
+
+        #     await pay_btn.click()
+
+        #     print("✅ Payment Button Clicked")
+
+        # except Exception as e:
+        #     print(f'💥 Payment Phase Error: {e}')
+
+
         # PHASE 6 : Initiating QR Generation
         # try:
+        
         #     qr_selector = 'span[onclick*="submitUpiQrForm"]'
-        #     target_span = await page.wait_for_selector(qr_selector, state="visible", timeout=0)
+
+        #     target_span = await page.wait_for_selector(
+        #         qr_selector,
+        #         state="visible",
+        #         timeout=25000
+        #     )
+
         #     await target_span.click()
+
+        #     print("✅ QR Generation Triggered")
+
         # except Exception as e:
         #     print(f'QR Generation Error: {e}')
-
     
     except Exception as e:
         print(f"An error occurred: {e}")
