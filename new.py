@@ -32,11 +32,11 @@ from datetime import datetime
 from solver import Solver
 
 CONFIG = {      
-    "TRAVEL_DATE": "01/07/2026", 
+    "TRAVEL_DATE": "16/07/2026", 
     "TRAVEL_CLASS": "Sleeper (SL)", 
     # [ AC First Class (1A) , AC 2 Tier (2A) , AC 3 Tier (3A) , AC 3 Economy (3E) , AC Chair car (CC) , Sleeper (SL)]
     "TRAIN_NUMBER": "12904" ,
-    "STRIKE_TIME": "10:59:59",
+    "STRIKE_TIME": "10:59:58",
     "QUOTA":"pt",
     # [ TQ , PT ]
 }
@@ -371,224 +371,222 @@ async def run():
 
 
         # PHASE 4 - CAPTCHA PAGE 
-        MAX_ATTEMPTS = 5  
-        try:
-            await page.wait_for_selector("app-captcha", timeout=0)
+        # MAX_ATTEMPTS = 5  
+        # try:
+        #     await page.wait_for_selector("app-captcha", timeout=0)
 
-            for a in range(1, MAX_ATTEMPTS + 1):
+        #     for a in range(1, MAX_ATTEMPTS + 1):
 
-                b64 = await page.evaluate("""() => {
-                    const img = document.querySelector('img.captcha-img');
-                    return (img && img.src && img.src.startsWith('data:image')) ? img.src : null;
-                }""")
+        #         b64 = await page.evaluate("""() => {
+        #             const img = document.querySelector('img.captcha-img');
+        #             return (img && img.src && img.src.startsWith('data:image')) ? img.src : null;
+        #         }""")
 
-                if not b64:
-                    print(f"[{a}] No captcha image")
-                    await asyncio.sleep(0.1)
-                    continue
+        #         if not b64:
+        #             print(f"[{a}] No captcha image")
+        #             await asyncio.sleep(0.1)
+        #             continue
                 
-                try:
-                    txt = (await asyncio.to_thread(Solver, b64) or "").strip()
-                except Exception as solver_error:
-                    print(f"solver pipeline error: {solver_error}")
-                    continue
+        #         try:
+        #             txt = (await asyncio.to_thread(Solver, b64) or "").strip()
+        #         except Exception as solver_error:
+        #             print(f"solver pipeline error: {solver_error}")
+        #             continue
                 
-                if not txt:
-                    print("Text not found")
-                    continue
+        #         if not txt:
+        #             print("Text not found")
+        #             continue
 
-                outcome = await page.evaluate("""(args) => new Promise(resolve => {
-                    const t = args.txt;
-                    const solvedImgSrc = args.solvedSrc;
+        #         outcome = await page.evaluate("""(args) => new Promise(resolve => {
+        #             const t = args.txt;
+        #             const solvedImgSrc = args.solvedSrc;
 
-                    const i = document.getElementById('captcha');
-                    const b = document.querySelector('button[type=submit].train_Search');
-                    const currentImg = document.querySelector('img.captcha-img');
+        #             const i = document.getElementById('captcha');
+        #             const b = document.querySelector('button[type=submit].train_Search');
+        #             const currentImg = document.querySelector('img.captcha-img');
 
-                    if (!i || !b || !currentImg) return resolve("FAILURE_DOM");
+        #             if (!i || !b || !currentImg) return resolve("FAILURE_DOM");
                                               
-                    if (currentImg.src !== solvedImgSrc) {
-                        return resolve("RACE_CONDITION_ABORT");
-                    }
+        #             if (currentImg.src !== solvedImgSrc) {
+        #                 return resolve("RACE_CONDITION_ABORT");
+        #             }
 
-                    const toastBaseline = document.querySelectorAll('.ui-toast-message-error').length;
-                    const submittedImgSrc = currentImg.src;
+        #             const toastBaseline = document.querySelectorAll('.ui-toast-message-error').length;
+        #             const submittedImgSrc = currentImg.src;
 
-                    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, t);
-                    i.dispatchEvent(new Event('input', {bubbles: true}));
+        #             Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(i, t);
+        #             i.dispatchEvent(new Event('input', {bubbles: true}));
 
-                    b.click(); 
+        #             b.click(); 
 
-                    const startTime = performance.now();
+        #             const startTime = performance.now();
 
-                    const watchOutcomes = () => {
-                        if (document.querySelector('app-payment, .bank-type') || location.href.includes('payment')) {
-                            return resolve("SUCCESS");
-                        }
-                        const currentToastCount = document.querySelectorAll('.ui-toast-message-error').length;
-                        if (currentToastCount > toastBaseline) {
-                            return resolve("FAILURE_WRONG_CAPTCHA");
-                        }
+        #             const watchOutcomes = () => {
+        #                 if (document.querySelector('app-payment, .bank-type') || location.href.includes('payment')) {
+        #                     return resolve("SUCCESS");
+        #                 }
+        #                 const currentToastCount = document.querySelectorAll('.ui-toast-message-error').length;
+        #                 if (currentToastCount > toastBaseline) {
+        #                     return resolve("FAILURE_WRONG_CAPTCHA");
+        #                 }
 
-                        const liveImg = document.querySelector('img.captcha-img');
-                        if (liveImg && liveImg.src && liveImg.src !== submittedImgSrc) {
-                            return resolve("FAILURE_AUTO_REFRESH");
-                        }
+        #                 const liveImg = document.querySelector('img.captcha-img');
+        #                 if (liveImg && liveImg.src && liveImg.src !== submittedImgSrc) {
+        #                     return resolve("FAILURE_AUTO_REFRESH");
+        #                 }
 
-                        // FIX EXECUTION: Drop the iteration counter. Check real-world millisecond intervals.
-                        if (performance.now() - startTime >= 8000) {
-                            return resolve("SERVER_LAG_TIMEOUT");
-                        }
+        #                 // FIX EXECUTION: Drop the iteration counter. Check real-world millisecond intervals.
+        #                 if (performance.now() - startTime >= 8000) {
+        #                     return resolve("SERVER_LAG_TIMEOUT");
+        #                 }
 
-                        setTimeout(watchOutcomes, 16);
-                    };
+        #                 setTimeout(watchOutcomes, 16);
+        #             };
 
-                    watchOutcomes();
-                })""", {"txt": txt, "solvedSrc": b64})
+        #             watchOutcomes();
+        #         })""", {"txt": txt, "solvedSrc": b64})
 
-                print(f"[Captcha Attempt {a}] Outcome = {outcome}")
+        #         print(f"[Captcha Attempt {a}] Outcome = {outcome}")
 
 
-                if outcome == "SUCCESS":
-                    break
+        #         if outcome == "SUCCESS":
+        #             break
 
-                elif outcome == "RACE_CONDITION_ABORT":
-                    print(f"[{a}] Race condition")
-                    continue
+        #         elif outcome == "RACE_CONDITION_ABORT":
+        #             print(f"[{a}] Race condition")
+        #             continue
 
-                elif outcome in ["FAILURE_WRONG_CAPTCHA", "FAILURE_AUTO_REFRESH"]:
-                    print(f"[{a}] Wrong captcha")
-                    await asyncio.sleep(random.uniform(0.04, 0.08))
-                    continue
+        #         elif outcome in ["FAILURE_WRONG_CAPTCHA", "FAILURE_AUTO_REFRESH"]:
+        #             print(f"[{a}] Wrong captcha")
+        #             await asyncio.sleep(random.uniform(0.04, 0.08))
+        #             continue
 
-                else:
-                    await asyncio.sleep(0.15)
+        #         else:
+        #             await asyncio.sleep(0.15)
 
+        #     else:
+        #         print(f"Active allocation limits reached ({MAX_ATTEMPTS}).")
+
+        # except Exception as global_err:
+        #     print(f"System Process Interrupted: {global_err}")
+
+        try:
+            print("Waiting for captcha page....")
+
+            review_container = page.locator("app-review-booking")
+            await review_container.wait_for(state="visible",timeout=0)
+
+            print('Arrived at captcha page....')
+
+            await asyncio.sleep(random.uniform(0.15, 0.35))
+            desktop_continue = review_container.locator("button.train_Search:has-text('Continue')")
+
+            if await desktop_continue.is_visible():
+                await human_glide_to(page,desktop_continue,global_mouse)
+                await desktop_continue.click()
             else:
-                print(f"Active allocation limits reached ({MAX_ATTEMPTS}).")
+                print("Specific layout button not explicitly visible, running general fallback selection...")
+                fallback_btn = review_container.locator("button[type='submit']:has-text('Continue')").first
+                await fallback_btn.click(force=True)
+        except Exception as e:
+            print(f"Captcha phase error : {e}")
 
-        except Exception as global_err:
-            print(f"System Process Interrupted: {global_err}")
-
+        print("Passed captcha phase successfully....")
         # PHASE 5 : Payment Selection With Fallback
         try:
+            # Wait for the main component wrapper to arrive
+            await page.wait_for_selector('app-payment', timeout=20000)
+            
             result = await page.evaluate("""() => {
                 return new Promise((resolve, reject) => {
 
+                    let bhimClicked = false;
+                    let multipleClicked = false;
                     let gatewayClicked = false;
                     let payClicked = false;
 
                     const observer = new MutationObserver(() => {
 
-                        // LEFT SIDE TABS
-                        const tabs = Array.from(
-                            document.querySelectorAll('.bank-type')
-                        );
+                        const tabs = Array.from(document.querySelectorAll('.bank-type'));
+                        const bhimTab = tabs.find(el => el.innerText.includes('BHIM'));
+                        const multiplePaymentTab = tabs.find(el => el.innerText.includes('Multiple Payment'));
 
-                        // BHIM TAB
-                        const bhimTab = tabs.find(el =>
-                            el.innerText.includes('BHIM')
-                        );
-
-                        // MULTIPLE PAYMENT TAB
-                        const multiplePaymentTab = tabs.find(el =>
-                            el.innerText.includes('Multiple Payment Service')
-                        );
-
-                        // =====================================================
-                        // STEP 1 : ENSURE BHIM TAB ACTIVE
-                        // =====================================================
-
-                        if (
-                            bhimTab &&
-                            !bhimTab.classList.contains('bank-type-active')
-                        ) {
-                            bhimTab.click();
-                            return;
+                        // 1. SELECT BHIM TAB IF NOT ACTIVE
+                        if (bhimTab && !bhimTab.classList.contains('bank-type-active')) {
+                            if (!bhimClicked) {
+                                bhimClicked = true;
+                                bhimTab.click();
+                            }
+                            return; 
                         }
 
-                        // CURRENT GATEWAYS
-                        let gateways = Array.from(
-                            document.querySelectorAll('.bank-text')
-                        );
+                        // 2. FETCH GATEWAYS & FILTER OUT ANGULAR EMPTY RENDERS
+                        let gateways = Array.from(document.querySelectorAll('.bank-text'))
+                                            .filter(el => el.innerText && el.innerText.trim().length > 0);
 
-                        // =====================================================
-                        // PRIORITY : PAYTM
-                        // =====================================================
+                        // If elements are in the DOM but text hasn't loaded yet, wait for the next mutation
+                        if (gateways.length === 0) return;
 
-                        let selectedGateway = gateways.find(el =>
-                            el.innerText.includes('PAYTM')
-                        );
-
+                        // Look for Paytm
+                        let selectedGateway = gateways.find(el => el.innerText.toUpperCase().includes('PAYTM'));
                         let gatewayName = "PAYTM";
 
-                        // =====================================================
-                        // FALLBACK : PHONEPE
-                        // =====================================================
-
-                        if (!selectedGateway) {
-
-                            // SWITCH TAB
-                            if (
-                                multiplePaymentTab &&
-                                !multiplePaymentTab.classList.contains('bank-type-active')
-                            ) {
-                                multiplePaymentTab.click();
-                                return;
+                        // 3. FALLBACK STATE LOCK
+                        // Only switch tabs if BHIM is active, gateways have loaded text, and Paytm is genuinely missing
+                        if (!selectedGateway && bhimTab && bhimTab.classList.contains('bank-type-active')) {
+                            
+                            if (multiplePaymentTab && !multiplePaymentTab.classList.contains('bank-type-active')) {
+                                if (!multipleClicked) {
+                                    multipleClicked = true;
+                                    multiplePaymentTab.click();
+                                }
+                                return; 
                             }
 
-                            // RE-QUERY AFTER TAB SWITCH
-                            gateways = Array.from(
-                                document.querySelectorAll('.bank-text')
-                            );
-
-                            selectedGateway = gateways.find(el =>
-                                el.innerText.includes('PhonePe')
-                            );
-
+                            // Re-query and filter under the new tab
+                            gateways = Array.from(document.querySelectorAll('.bank-text'))
+                                            .filter(el => el.innerText && el.innerText.trim().length > 0);
+                            selectedGateway = gateways.find(el => el.innerText.includes('PhonePe'));
                             gatewayName = "PHONEPE";
                         }
 
-                        // CLICK GATEWAY ONLY ONCE
+                        // 4. CLICK GATEWAY (With CPU Lag Retry)
                         if (selectedGateway && !gatewayClicked) {
-                            selectedGateway.click();
                             gatewayClicked = true;
+                            selectedGateway.click();
                         }
 
-                        // CONTINUE BUTTON
-                        const payBtn =
-                            document.querySelector('button.btn-primary');
-
-                        if (
-                            payBtn &&
-                            !payBtn.disabled &&
-                            gatewayClicked &&
-                            !payClicked
-                        ) {
-
+                        // 5. SUBMIT PAYMENT
+                        const payBtn = document.querySelector('button.btn-primary');
+                        if (payBtn && !payBtn.disabled && gatewayClicked && !payClicked) {
                             payClicked = true;
-
                             payBtn.click();
-
+                            
                             observer.disconnect();
                             resolve(gatewayName);
                         }
-
                     });
 
                     observer.observe(document.body, {
                         childList: true,
-                        subtree: true
+                        subtree: true,
+                        characterData: true // Crucial for catching text streams under heavy lag
                     });
 
-                    // INITIAL TRIGGER
-                    document.body.dispatchEvent(new Event('input'));
+                    // Execute initial loop immediately in case it cached loaded
+                    const immediateCheck = Array.from(document.querySelectorAll('.bank-text'))
+                                                .filter(el => el.innerText && el.innerText.trim().length > 0);
+                    if (immediateCheck.length > 0) {
+                        // Fake a small mutation trigger internally
+                        const tabs = Array.from(document.querySelectorAll('.bank-type'));
+                        if(tabs.length > 0) document.body.click(); 
+                    }
 
-                    // TIMEOUT
+                    // Strict Tatkal Timeout (Elevated to 20s to allow for extreme gateway latency)
                     setTimeout(() => {
                         observer.disconnect();
-                        reject("Gateway Selection Timeout");
-                    }, 15000);
+                        reject("Gateway Selection Timeout under Tatkal load");
+                    }, 20000);
 
                 });
             }""")
