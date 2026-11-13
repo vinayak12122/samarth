@@ -6,3 +6,6 @@ numpy==1.24.4
 
 paddlex==3.4.2
 paddlepaddle==3.3.0
+
+
+# pip install python-bidi pypdfium2 opencv-contrib-python
